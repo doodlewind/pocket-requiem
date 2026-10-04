@@ -18,14 +18,14 @@ import { TEMPLATE_STRIDE } from "../src/fx/ir";
 import { buildDemon } from "../src/model/demon";
 import { buildMage } from "../src/model/mage";
 import { buildKnight, buildKnightFar, KnightDetail } from "../src/model/knight";
-import { SKIN_STRIDE, SkinModel } from "../src/model/sdf";
+import { SKIN_STRIDE, SkinModel, withDetail } from "../src/model/sdf";
 import { skyColor } from "../src/render/sky";
 import { FIGURE, KNIGHT_FRAMES } from "../src/sim/abi.gen";
 import { Sim } from "../src/sim/sim";
-import { ATLAS_H, ATLAS_W, paintAtlas, STRIP } from "../src/world/atlas";
+import { ATLAS_H, ATLAS_W, paintAtlas, STRIP, stripV } from "../src/world/atlas";
 import { CELL, Geo, Layer, STRIDE, SUPER } from "../src/world/geo";
 import { SCENE } from "../src/world/scene";
-import { generate } from "../src/world/stage";
+import { FIELD_CELL, generate } from "../src/world/stage";
 import { writeWorldFile } from "../src/world/worldfile";
 
 const args = process.argv.slice(2);
@@ -41,6 +41,11 @@ const out = resolve(arg("out", join(import.meta.dir, "../../.pocket-build/stage/
  * figure, then two built of boxes for the far ranks. A device profile says
  * which it packs and at what distance each takes over.
  */
+/** The mage and the demon for the 3DS and for the PSP: cell sizes (body, head) and the share of the trims' tessellation. */
+const HAND: { cells: [number, number]; detail: number }[] = [
+  { cells: [0.042, 0.022], detail: 0.5 },
+  { cells: [0.05, 0.026], detail: 0.34 },
+];
 const KNIGHT_LODS: (KnightDetail | "boxes" | "block")[] = [{ cell: 0.031, trims: true }, { cell: 0.058, inflate: 0.006 }, { cell: 0.11, inflate: 0.022 }, "boxes", "block"];
 
 function meshBytes(header: number[], entries: { head: number[]; geo: Geo }[]): Uint8Array {
@@ -145,11 +150,18 @@ const t0 = performance.now();
 const gen = generate(seed);
 const buckets = gen.meshes.sorted().filter((b) => b.geo.ni > 0);
 // Models are built on the simulation's bind poses. The mage is model 0 and the demon model 4; a knight of kind k at level l is model 100 k + l.
+// Models 10 and 14 are the mage and the demon at the 3DS's resolution, 20 and 24 at the PSP's.
 const wasm = await Bun.file(join(import.meta.dir, "../public/sim/requiem_sim.wasm")).arrayBuffer();
 const sim = await Sim.load(wasm, null, 0);
 const models: { id: number; model: SkinModel }[] = [
   { id: 0, model: buildMage(sim.bind(FIGURE.MAGE), [0.0155, 0.009]) },
   { id: FIGURE.DEMON, model: buildDemon(sim.bind(FIGURE.DEMON)) },
+  ...HAND.flatMap((h, k) =>
+    withDetail(h.detail, () => [
+      { id: 10 * (k + 1), model: buildMage(sim.bind(FIGURE.MAGE), h.cells) },
+      { id: 10 * (k + 1) + FIGURE.DEMON, model: buildDemon(sim.bind(FIGURE.DEMON), h.cells) },
+    ]),
+  ),
 ];
 const knightStats: Record<string, number[]> = {};
 for (const kind of [FIGURE.KNIGHT_SWORD, FIGURE.KNIGHT_HALBERD, FIGURE.KNIGHT_GREAT]) {
@@ -194,12 +206,14 @@ const scene = {
   cell: CELL,
   superCell: SUPER,
   atlas: { width: ATLAS_W, height: ATLAS_H, stripEdges: [...edges].sort((a, b) => a - b) },
+  // The ground's texture coordinates: `u` advances by this much per grid square, and rows alternate between the two `v`.
+  ground: { uPerSquare: FIELD_CELL / STRIP.GROUND.mPerU, v: stripV(STRIP.GROUND) },
   skyTable: { elevations: [-2, 16], azimuths: 24, colors: sky },
   stage: { knights: gen.knights, cohorts: gen.stage.musters.length, obstacles: gen.obstacles.length, start: gen.stage.start, demon: gen.stage.demon, ...gen.counts },
   crowd: { kinds: 3, lods: KNIGHT_LODS.length, frames: KNIGHT_FRAMES, triangles: knightStats },
   source: {
-    buckets: { near: layerCount(Layer.Near), mid: layerCount(Layer.Mid), far: layerCount(Layer.Far), backdrop: layerCount(Layer.Backdrop) },
-    triangles: [Layer.Near, Layer.Mid, Layer.Far, Layer.Backdrop].map((l) => gen.meshes.triangles(l)),
+    buckets: { near: layerCount(Layer.Near), mid: layerCount(Layer.Mid), far: layerCount(Layer.Far), backdrop: layerCount(Layer.Backdrop), ground: layerCount(Layer.GroundNear) + layerCount(Layer.GroundMid) + layerCount(Layer.GroundFar) },
+    triangles: [Layer.Near, Layer.Mid, Layer.Far, Layer.Backdrop, Layer.GroundNear, Layer.GroundMid, Layer.GroundFar].map((l) => gen.meshes.triangles(l)),
     collisionTriangles: gen.col.k.length,
   },
 };
@@ -213,5 +227,5 @@ for (const [path, bytes] of Object.entries(files)) {
 }
 await Bun.write(join(out, "manifest.json"), JSON.stringify(manifest, null, 1));
 console.log(`stage IR: ${out}  seed ${seed}  ${buckets.length} buckets  ${(Object.values(files).reduce((n, b) => n + b.length, 0) / 1e6).toFixed(1)} MB  ${(performance.now() - t0).toFixed(0)} ms`);
-console.log(`knights: ${gen.knights} in ${gen.stage.musters.length} cohorts; triangles per level ${JSON.stringify(knightStats)}; mage ${models[0].model.i.length / 3}`);
-console.log(`ground and props: near ${gen.meshes.triangles(Layer.Near)} mid ${gen.meshes.triangles(Layer.Mid)} far ${gen.meshes.triangles(Layer.Far)} backdrop ${gen.meshes.triangles(Layer.Backdrop)}; ${JSON.stringify(gen.counts)}`);
+console.log(`knights: ${gen.knights} in ${gen.stage.musters.length} cohorts; triangles per level ${JSON.stringify(knightStats)}; mage ${models[0].model.i.length / 3}, for the handhelds ${models[2].model.i.length / 3} and ${models[4].model.i.length / 3}; demon ${models[1].model.i.length / 3}, ${models[3].model.i.length / 3} and ${models[5].model.i.length / 3}`);
+console.log(`props: near ${gen.meshes.triangles(Layer.Near)} mid ${gen.meshes.triangles(Layer.Mid)} far ${gen.meshes.triangles(Layer.Far)} backdrop ${gen.meshes.triangles(Layer.Backdrop)}; ground: ${gen.meshes.triangles(Layer.GroundNear)} / ${gen.meshes.triangles(Layer.GroundMid)} / ${gen.meshes.triangles(Layer.GroundFar)}; ${JSON.stringify(gen.counts)}`);

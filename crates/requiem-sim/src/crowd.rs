@@ -48,7 +48,9 @@ pub const FADE: u8 = 6;
 const LIE: u32 = 170;
 const SINK: u32 = 70;
 const CELL: f32 = 1.6;
-const HASH: usize = 4096;
+/// Cells of the neighbour grid: 32 × 32, wrapping. Two knights 51 m apart share a cell and are told apart by
+/// their distance. The grid's tables are 4 KB: a machine with a 16 KB data cache walks them every tick.
+const HASH: usize = 1024;
 const BODY: f32 = 0.52;
 pub const CAPTAIN_SCALE: f32 = 1.2;
 
@@ -64,6 +66,17 @@ pub struct Cohort {
     pub phase: f32,
     pub radius: f32,
     pub marching: bool,
+}
+
+/// A knight far from the eye: where it stands and what it is.
+#[derive(Clone, Copy, Debug)]
+#[repr(C)]
+pub struct Far {
+    pub pos: V3,
+    pub dist2: f32,
+    pub kind: u8,
+    pub big: u8,
+    pub pad: [u8; 2],
 }
 
 /// One knight as a renderer draws it.
@@ -104,6 +117,12 @@ pub struct Struck {
 }
 
 pub struct Crowd {
+    /// A device's microsecond clock; `prof` then adds up the cohorts and the neighbour grid, and the loop
+    /// over the knights out of formation.
+    pub clock: Option<fn() -> u32>,
+    pub prof: [u32; 2],
+    /// Ground each kind of knight covers in one cycle of its walk and of its run.
+    strides: [[f32; 2]; 3],
     pub n: usize,
     pub x: Vec<f32>,
     pub z: Vec<f32>,
@@ -126,14 +145,15 @@ pub struct Crowd {
     flash: Vec<u8>,
     cool: Vec<u16>,
     cohort: Vec<u16>,
-    sx: Vec<f32>,
-    sz: Vec<f32>,
+    /// A knight's place in its cohort: metres to the cohort's right and behind its front rank.
+    pub sx: Vec<f32>,
+    pub sz: Vec<f32>,
     pub cohorts: Vec<Cohort>,
     /// Knights out of formation and not yet gone.
     pub free: Vec<u32>,
-    cell_start: Vec<u32>,
+    cell_start: Vec<u16>,
     cell_items: Vec<u32>,
-    cell_fill: Vec<u32>,
+    cell_fill: Vec<u16>,
     cell_of: Vec<u16>,
     attackers: u32,
     pub fallen: u32,
@@ -155,13 +175,16 @@ fn hash(i: u32) -> u32 {
 fn cell_key(x: f32, z: f32) -> usize {
     let ix = floor(x / CELL) as i32;
     let iz = floor(z / CELL) as i32;
-    ((ix & 63) | ((iz & 63) << 6)) as usize
+    ((ix & 31) | ((iz & 31) << 5)) as usize
 }
 
 impl Crowd {
     pub fn new(musters: &[Muster]) -> Crowd {
         let n: usize = musters.iter().map(|m| m.cols as usize * m.rows as usize).sum();
         let mut c = Crowd {
+            strides: [0u32, 1, 2].map(|k| [knight::stride_of(k + 1, false), knight::stride_of(k + 1, true)]),
+            clock: None,
+            prof: [0; 2],
             n,
             x: vec![0.0; n],
             z: vec![0.0; n],
@@ -283,6 +306,9 @@ impl Crowd {
     pub fn tick(&mut self, field: &Field, tick: u32, target: V3, fx: &mut FxList) {
         let dt = 1.0 / 60.0;
         self.blows = [None; 4];
+        let clock = self.clock;
+        let now = || clock.map_or(0, |c| c());
+        let t_start = now();
         // ---- cohorts: march on her when she is in sight, let go when she is near
         for ci in 0..self.cohorts.len() {
             if self.cohorts[ci].formed == 0 {
@@ -302,7 +328,7 @@ impl Crowd {
                 let f = heading(c.yaw);
                 c.x += f.x * knight::WALK_SPEED * dt;
                 c.z += f.z * knight::WALK_SPEED * dt;
-                c.phase += knight::WALK_SPEED * dt / knight::stride_of(1, false);
+                c.phase += knight::WALK_SPEED * dt / self.strides[0][0];
                 if c.phase >= 1.0 {
                     c.phase -= 1.0;
                 }
@@ -335,6 +361,8 @@ impl Crowd {
             }
         }
 
+        let t_grid = now();
+        self.prof[0] = self.prof[0].wrapping_add(t_grid.wrapping_sub(t_start));
         let mut attackers = 0u32;
         let mut near = 0u32;
         let mut gone = false;
@@ -364,6 +392,12 @@ impl Crowd {
             let since = tick.wrapping_sub(self.t0[i]);
             match self.state[i] {
                 state::CHASE => {
+                    // A knight on its feet decides and steps every other tick, half of them on each: every
+                    // machine shows a frame per two ticks, and this is most of what a tick costs.
+                    if (i as u32 ^ tick) & 1 != 0 {
+                        continue;
+                    }
+                    let dt = dt * 2.0;
                     if d2 > LEASH * LEASH {
                         self.set_clip(i, clip::IDLE, tick);
                         continue;
@@ -372,9 +406,7 @@ impl Crowd {
                     let reach = knight::REACH[self.kind[i] as usize] * if self.big[i] != 0 { CAPTAIN_SCALE } else { 1.0 };
                     let want = atan2(-dx, -dz);
                     self.yaw[i] = wrap_angle(self.yaw[i] + clamp(wrap_angle(want - self.yaw[i]), -5.0 * dt, 5.0 * dt));
-                    if self.cool[i] > 0 {
-                        self.cool[i] -= 1;
-                    }
+                    self.cool[i] = self.cool[i].saturating_sub(2);
                     // A knight whose turn has not come stands off in a loose ring, each at its own distance;
                     // one whose turn has come steps in to its weapon's reach.
                     let waiting = self.cool[i] > 0 || self.attackers >= ATTACKERS;
@@ -402,7 +434,7 @@ impl Crowd {
                     let mut pushed = 0.0f32;
                     for oz in -1..=1 {
                         for ox in -1..=1 {
-                            let k = (((cx + ox) & 63) | (((cz + oz) & 63) << 6)) as usize;
+                            let k = (((cx + ox) & 31) | (((cz + oz) & 31) << 5)) as usize;
                             for &j in &self.cell_items[self.cell_start[k] as usize..self.cell_start[k + 1] as usize] {
                                 let j = j as usize;
                                 if j == i {
@@ -413,7 +445,7 @@ impl Crowd {
                                 let gap = BODY * 2.0 * if self.big[i] | self.big[j] != 0 { 1.25 } else { 1.0 };
                                 if e2 < gap * gap && e2 > 1e-6 {
                                     let e = sqrt(e2);
-                                    let k = (gap - e) / e * 0.35;
+                                    let k = (gap - e) / e * 0.5;
                                     mx += ex * k;
                                     mz += ez * k;
                                     pushed += gap - e;
@@ -440,7 +472,7 @@ impl Crowd {
                     if moved > 0.5 {
                         let run = moved > 2.8;
                         self.set_clip(i, if run { clip::RUN } else { clip::WALK }, tick);
-                        let p = self.phase[i] + moved * dt / knight::stride_of(self.kind[i] as u32 + 1, run);
+                        let p = self.phase[i] + moved * dt / self.strides[self.kind[i] as usize][run as usize];
                         self.phase[i] = p - floor(p);
                     } else {
                         self.set_clip(i, clip::IDLE, tick);
@@ -542,6 +574,7 @@ impl Crowd {
                 _ => {}
             }
         }
+        self.prof[1] = self.prof[1].wrapping_add(now().wrapping_sub(t_grid));
         self.attackers = attackers;
         self.near = near;
         if gone {
@@ -737,6 +770,49 @@ impl Crowd {
         self.n as u32 - self.fallen
     }
 
+    /// The knights between `from` and `to` metres of the eye and inside the frustum, as places only: for a
+    /// machine that draws far knights as figures of a few triangles. A cohort is tested against the frustum
+    /// as a whole, a knight only against the two distances. A cohort wholly beyond `whole` is left out: a
+    /// machine draws it as one mesh of its ranks.
+    pub fn far(&self, field: &Field, planes: &[[f32; 4]; 6], eye: V3, from: f32, to: f32, whole: f32, out: &mut Vec<Far>) {
+        out.clear();
+        let (from2, to2) = (from * from, to * to);
+        let mut put = |x: f32, z: f32, kind: u8, big: u8| {
+            let (dx, dz) = (x - eye.x, z - eye.z);
+            let flat = dx * dx + dz * dz;
+            if flat > to2 {
+                return;
+            }
+            let y = field.height(x, z);
+            let d2 = flat + (y - eye.y) * (y - eye.y);
+            if d2 >= from2 && d2 <= to2 {
+                out.push(Far { pos: v3(x, y, z), dist2: d2, kind, big, pad: [0; 2] });
+            }
+        };
+        for c in &self.cohorts {
+            if c.formed == 0 {
+                continue;
+            }
+            let centre = v3(c.x, field.height(c.x, c.z) + 1.0, c.z);
+            let d = (centre - eye).len();
+            if d - c.radius > whole || d > to + c.radius || d + c.radius < from || planes[..4].iter().any(|pl| pl[0] * centre.x + pl[1] * centre.y + pl[2] * centre.z + pl[3] < -(c.radius + 3.0)) {
+                continue;
+            }
+            let (sn, cs) = (sin(c.yaw), cos(c.yaw));
+            for i in c.first as usize..(c.first + c.count) as usize {
+                if self.state[i] == state::FORM {
+                    put(c.x + cs * self.sx[i] + sn * self.sz[i], c.z - sn * self.sx[i] + cs * self.sz[i], self.kind[i], self.big[i]);
+                }
+            }
+        }
+        for &i in &self.free {
+            let i = i as usize;
+            if self.state[i] < state::DOWN {
+                put(self.x[i], self.z[i], self.kind[i], self.big[i]);
+            }
+        }
+    }
+
     /// Writes every knight inside the frustum `planes` (`n·p + d >= 0` inside) into `out`.
     pub fn draw(&self, field: &Field, tick: u32, planes: &[[f32; 4]; 6], eye: V3, far: f32, out: &mut Vec<Draw>) {
         out.clear();
@@ -757,11 +833,17 @@ impl Crowd {
             if (centre - eye).len() > far + c.radius || !inside(centre, c.radius + 3.0) {
                 continue;
             }
+            // The cohort's turn, once for its ranks.
+            let (sn, cs) = (sin(c.yaw), cos(c.yaw));
             for i in c.first as usize..(c.first + c.count) as usize {
                 if self.state[i] != state::FORM {
                     continue;
                 }
-                let (x, z) = self.slot(i);
+                let (x, z) = (c.x + cs * self.sx[i] + sn * self.sz[i], c.z - sn * self.sx[i] + cs * self.sz[i]);
+                // Out of range over the ground is out of range.
+                if (x - eye.x) * (x - eye.x) + (z - eye.z) * (z - eye.z) > far2 {
+                    continue;
+                }
                 let p = v3(x, field.height(x, z), z);
                 let dist2 = (p - eye).len2();
                 if dist2 > far2 || !inside(p + v3(0.0, 1.0, 0.0), 1.6) {

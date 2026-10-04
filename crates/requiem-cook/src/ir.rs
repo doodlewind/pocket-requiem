@@ -17,6 +17,10 @@ pub mod layer {
     pub const MID: i32 = 2;
     pub const FAR: i32 = 3;
     pub const BACKDROP: i32 = 4;
+    /// The ground of a cell at 4 m and at 8 m, and of a super-cell at 32 m.
+    pub const GROUND_NEAR: i32 = 5;
+    pub const GROUND_MID: i32 = 6;
+    pub const GROUND_FAR: i32 = 7;
 }
 
 #[derive(Deserialize)]

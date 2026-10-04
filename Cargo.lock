@@ -212,6 +212,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "requiem-handheld"
+version = "0.1.0"
+dependencies = [
+ "libm",
+ "requiem-pack",
+ "requiem-sim",
+]
+
+[[package]]
 name = "requiem-pack"
 version = "0.1.0"
 

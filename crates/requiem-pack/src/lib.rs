@@ -1,7 +1,7 @@
-//! The device pack (`MVPK`): what the world compiler writes and a runtime
+//! The device pack (`RQPK`): what the world compiler writes and a runtime
 //! loads in one read.
 //!
-//! Little-endian. Header: `"MVPK"`, version, section count, zero; then one
+//! Little-endian. Header: `"RQPK"`, version, section count, zero; then one
 //! 16-byte entry per section (tag, offset, size, zero). Sections start on
 //! 16-byte boundaries.
 //!
@@ -26,12 +26,16 @@
 //! | `HMSH` | `HandMesh` table |
 //! | `VTX0` | resident vertices (`PspVertex` or `PicaVertex`) |
 //! | `IDX0` | resident `u16` indices |
-//! | `NEAR` | PSP: per 64 m cell, the vertices then the indices of its detailed meshes, read on demand |
+//! | `GRND` | `GroundHeader`, then the ground's baked colour per grid point; the device builds the ground from it and the heights in `SIMW` |
 //! | `CLIP` | PSP: per mesh, its large triangles' groups (`ClipGroup`) and one byte per large triangle, the distance (× 2 m) inside which the CPU clips it |
-//! | `MODL` | skinned models: `SkinVertex` models (3DS) or bone-batched `PspSkinVertex` models (PSP) |
+//! | `MODL` | skinned models, cut into draws of at most 19 bones of `SkinVertex` (3DS) or 4 bones of `PspSkinVertex` (PSP) |
+//! | `CRWP` | PSP: the army's frames, each stored with the next of its clip, for the GE's vertex blend |
+//! | `CRWD` | 3DS: the army's frames, as in the Vita pack |
+//! | `FXPK` | the effects' templates and constants, without the atlas |
+//! | `FXTX` | the effects' atlas: `TexHeader` and one level (PSP: 8-bit indices of a grey ramp; 3DS: 8-bit alpha) |
 //! | `FONT` | `FontHeader`, `Glyph` table, then the glyph atlas as a 16-bit device texture |
-//! | `SIMG` | the simulation's world in built form (`requiem_sim::worldfile::Built`) |
-//! | `MAPT` | 3DS: the town from above, `TexHeader` and one level |
+//! | `SIMW` | the simulation's world file, unchanged |
+//! | `MAPT` | 3DS: the field from above, 240 × 240 texels of `r << 11 | g << 5 | b` |
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -57,6 +61,10 @@ pub const FONT: u32 = tag(b"FONT");
 pub const SIMW: u32 = tag(b"SIMW");
 /// The army's baked frames.
 pub const CRWD: u32 = tag(b"CRWD");
+/// The army's frames for the PSP: each stored frame interleaved with the next of its clip.
+pub const CRWP: u32 = tag(b"CRWP");
+/// The effects' atlas in the device's texture format.
+pub const FXTX: u32 = tag(b"FXTX");
 /// Compiled effects.
 pub const FXPK: u32 = tag(b"FXPK");
 pub const HSCN: u32 = tag(b"HSCN");
@@ -65,6 +73,8 @@ pub const NEAR: u32 = tag(b"NEAR");
 pub const CLIP: u32 = tag(b"CLIP");
 pub const SIMG: u32 = tag(b"SIMG");
 pub const MAPT: u32 = tag(b"MAPT");
+/// The ground's baked colours as a grid: `GroundHeader`, then one `u16` per grid point.
+pub const GRND: u32 = tag(b"GRND");
 
 /// Which mesh of a place in the grid a record is.
 pub mod mesh_kind {
@@ -138,6 +148,8 @@ pub mod tex_format {
     pub const PICA_RGBA4: u32 = 6;
     /// 8-bit indices, swizzled. Each page starts with its palette: 256 colours, `r, g, b, 255` bytes.
     pub const PSP_T8: u32 = 7;
+    /// 8-bit alpha, in 8 × 8 tiles of Morton order, rows bottom-up.
+    pub const PICA_A8: u32 = 8;
     /// Bytes of a `PSP_T8` page's palette.
     pub const PALETTE_BYTES: usize = 1024;
 
@@ -145,10 +157,27 @@ pub mod tex_format {
     pub fn level_bytes(format: u32, w: u32, h: u32) -> usize {
         match format {
             BC1 | PSP_DXT1 => (w.div_ceil(4) * h.div_ceil(4) * 8) as usize,
-            PSP_T8 => (w * h) as usize,
+            PSP_T8 | PICA_A8 => (w * h) as usize,
             _ => (w * h * 2) as usize,
         }
     }
+}
+
+/// The ground of a handheld pack. Its heights are the simulation's grid (`SIMW`): `n × n` points, `cell`
+/// metres apart, from `min` on both axes. A device builds the ground's meshes from the two grids: a
+/// vertex's `u` is its column × `u_per_square`, its `v` is `v[0]` on even rows and `v[1]` on odd ones
+/// (on atlas page `page`), and its colour is this section's entry for its grid point: baked light × tint
+/// at half scale, `r | g << 5 | b << 11`.
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
+pub struct GroundHeader {
+    pub n: u32,
+    pub cell: f32,
+    pub min: f32,
+    pub u_per_square: f32,
+    pub v: [f32; 2],
+    pub page: u32,
+    pub pad: u32,
 }
 
 /// Scene constants and layout switches of a handheld pack. Colours are linear.
@@ -178,9 +207,9 @@ pub struct HandScene {
     /// Linear haze for fixed-function devices: none at `fog_near`, full at `fog_far`.
     pub fog_near: f32,
     pub fog_far: f32,
-    /// A giant nearer than `titan_near` draws its detailed model; beyond `titan_far` it is not drawn.
-    pub titan_near: f32,
-    pub titan_far: f32,
+    /// The moon's disc: its angular radius in radians, and a spare.
+    pub moon_radius: f32,
+    pub spare: f32,
     /// Stored `u` covers `0..u_range` texture repeats.
     pub u_range: f32,
     pub color_scale: f32,
@@ -189,9 +218,16 @@ pub struct HandScene {
     pub pages: u32,
     /// 1: detailed cell meshes live in `NEAR` and are read on demand.
     pub near_streamed: u32,
-    pub dummies: u32,
-    /// The most giants one frame draws (the nearest ones).
-    pub max_giants: u32,
+    /// Levels of detail of a knight in the pack.
+    pub crowd_lods: u32,
+    /// Triangles of knights a frame may draw.
+    pub crowd_budget: u32,
+    /// The moon's colour.
+    pub moon: [f32; 3],
+    /// The most knights one frame draws.
+    pub crowd_max: u32,
+    /// The distance in metres at which each level of detail hands over to the next; the last used entry is where a knight is no longer drawn.
+    pub crowd_reach: [f32; 8],
 }
 
 /// One static mesh of a handheld pack.
@@ -356,6 +392,15 @@ pub struct CrowdVertex {
     pub pos: [i16; 3],
     pub pad: u16,
     pub normal: [i8; 4],
+}
+
+/// PSP: one vertex of one stored frame, as the GE reads a morph target: colour 5650 with the light baked in, then position.
+/// A mesh's frame `f` is `vtx_count` pairs: this frame's vertex, then the same vertex in the next frame of its clip.
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
+pub struct PspCrowdVertex {
+    pub color: u16,
+    pub pos: [i16; 3],
 }
 
 /// One knight in an instanced call: 20 bytes.
@@ -556,7 +601,10 @@ mod tests {
         assert_eq!(core::mem::size_of::<MeshRec>(), 56);
         assert_eq!(core::mem::size_of::<SkinVertex>(), 24);
         assert_eq!(core::mem::size_of::<Glyph>(), 20);
-        assert_eq!(core::mem::size_of::<HandScene>(), 176);
+        assert_eq!(core::mem::size_of::<HandScene>(), 224);
+        assert_eq!(core::mem::size_of::<PspCrowdVertex>(), 8);
+        assert_eq!(core::mem::size_of::<CrowdVertex>(), 12);
+        assert_eq!(core::mem::size_of::<FxLayer>(), 160);
         assert_eq!(core::mem::size_of::<HandMesh>(), 72);
         assert_eq!(core::mem::size_of::<PspVertex>(), 12);
         assert_eq!(core::mem::size_of::<ClipGroup>(), 28);

@@ -53,12 +53,12 @@ export function toGeometry(geo: Geo): THREE.BufferGeometry {
 interface Cell {
   box: THREE.Box3;
   base?: THREE.Mesh;
-  near?: THREE.Mesh;
-  mid?: THREE.Mesh;
+  near: THREE.Mesh[];
+  mid: THREE.Mesh[];
 }
 interface Super {
   box: THREE.Box3;
-  far?: THREE.Mesh;
+  far: THREE.Mesh[];
   cells: Cell[];
 }
 
@@ -81,7 +81,7 @@ export class WorldView {
       const key = `${x}:${z}`;
       let s = supers.get(key);
       if (!s) {
-        s = { box: new THREE.Box3(), cells: [] };
+        s = { box: new THREE.Box3(), far: [], cells: [] };
         supers.set(key, s);
       }
       return s;
@@ -95,32 +95,31 @@ export class WorldView {
       return m;
     };
     for (const b of meshes.sorted()) {
-      // The horizon layer is for the handheld packs.
-      if (b.geo.ni === 0 || b.layer === Layer.Horizon) continue;
+      if (b.geo.ni === 0) continue;
       const m = mesh(b);
       if (b.layer === Layer.Backdrop) {
         m.frustumCulled = false;
         this.backdrop.push(m);
         continue;
       }
-      if (b.layer === Layer.Far) {
+      if (b.layer === Layer.Far || b.layer === Layer.GroundFar) {
         const s = superOf(b.cx, b.cz);
-        s.far = m;
+        s.far.push(m);
         s.box.union(m.geometry.boundingBox!);
         continue;
       }
       const key = `${b.cx}:${b.cz}`;
       let c = cells.get(key);
       if (!c) {
-        c = { box: new THREE.Box3() };
+        c = { box: new THREE.Box3(), near: [], mid: [] };
         cells.set(key, c);
         const per = SUPER / CELL;
         superOf(Math.floor(b.cx / per), Math.floor(b.cz / per)).cells.push(c);
       }
       c.box.union(m.geometry.boundingBox!);
       if (b.layer === Layer.Base) c.base = m;
-      else if (b.layer === Layer.Near) c.near = m;
-      else c.mid = m;
+      else if (b.layer === Layer.Near || b.layer === Layer.GroundNear) c.near.push(m);
+      else c.mid.push(m);
     }
     for (const s of supers.values()) for (const c of s.cells) s.box.union(c.box);
     this.supers = [...supers.values()];
@@ -142,12 +141,12 @@ export class WorldView {
     };
     for (const s of this.supers) {
       const far = s.box.distanceToPoint(eye) > SCENE.lod.mid;
-      show(s.far, far, s.box);
+      for (const m of s.far) show(m, far, s.box);
       for (const c of s.cells) {
         const near = !far && c.box.distanceToPoint(eye) < SCENE.lod.near;
         show(c.base, !far, c.box);
-        show(c.near, !far && near, c.box);
-        show(c.mid, !far && !near, c.box);
+        for (const m of c.near) show(m, !far && near, c.box);
+        for (const m of c.mid) show(m, !far && !near, c.box);
       }
     }
     for (const m of this.backdrop) {

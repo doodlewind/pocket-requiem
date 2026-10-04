@@ -14,7 +14,8 @@ fn pad16(out: &mut Vec<u8>) {
     }
 }
 
-pub fn lower(src: &[u8]) -> Result<(Vec<u8>, Value), String> {
+/// `keep_atlas`: the atlas's bytes go into the section (the Vita reads them there); without, a device reads `FXTX`.
+pub fn lower(src: &[u8], keep_atlas: bool) -> Result<(Vec<u8>, Value), String> {
     let word = |at: usize| src.get(at..at + 4).map(|s| u32::from_le_bytes([s[0], s[1], s[2], s[3]])).ok_or("fx.bin is truncated".to_string());
     if word(0)? != u32::from_le_bytes(*b"RQFX") || word(4)? != 1 {
         return Err("fx.bin has the wrong magic or version".into());
@@ -60,7 +61,9 @@ pub fn lower(src: &[u8]) -> Result<(Vec<u8>, Value), String> {
     let mut data = vec![0u8; head];
     pad16(&mut data);
     let atlas_at = data.len() as u32;
-    data.extend_from_slice(atlas_bytes);
+    if keep_atlas {
+        data.extend_from_slice(atlas_bytes);
+    }
     pad16(&mut data);
     let (mut vertices, mut triangles) = (0usize, 0usize);
     for (l, (verts, idx)) in layers.iter_mut().zip(&blobs) {
@@ -74,7 +77,7 @@ pub fn lower(src: &[u8]) -> Result<(Vec<u8>, Value), String> {
         triangles += l.idx_count as usize / 3;
     }
     debug_assert_eq!(core::mem::size_of::<FxVertex>(), 12);
-    let header = FxHeader { effects: effects.len() as u32, layers: layers.len() as u32, atlas: atlas as u32, atlas_at };
+    let header = FxHeader { effects: effects.len() as u32, layers: layers.len() as u32, atlas: if keep_atlas { atlas as u32 } else { 0 }, atlas_at };
     let mut o = 0;
     let mut put = |bytes: &[u8]| {
         data[o..o + bytes.len()].copy_from_slice(bytes);

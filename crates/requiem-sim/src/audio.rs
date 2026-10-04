@@ -36,7 +36,47 @@ struct Voice {
     phase: f32,
 }
 
+/// One turn of a sine and `exp(-x)` over 0..16, in 256 steps each: a voice asks for several of each per
+/// sample, and at that rate the series behind `sin` and `exp` cost more than everything else in a frame.
+struct Tables {
+    sin: [f32; 257],
+    exp: [f32; 257],
+}
+
+impl Tables {
+    fn new() -> Tables {
+        let mut t = Tables { sin: [0.0; 257], exp: [0.0; 257] };
+        for i in 0..257 {
+            t.sin[i] = sin(i as f32 * (TAU / 256.0));
+            t.exp[i] = exp(-(i as f32) / 16.0);
+        }
+        t
+    }
+    /// `sin(x)` for `x >= 0`.
+    #[inline]
+    fn sin(&self, x: f32) -> f32 {
+        let u = x * (256.0 / TAU);
+        let i = u as i32;
+        let f = u - i as f32;
+        let k = (i & 255) as usize;
+        self.sin[k] + (self.sin[k + 1] - self.sin[k]) * f
+    }
+    /// `exp(x)` for `x <= 0`.
+    #[inline]
+    fn exp(&self, x: f32) -> f32 {
+        let u = -x * 16.0;
+        if u >= 256.0 {
+            return 0.0;
+        }
+        let i = u as i32;
+        let f = u - i as f32;
+        let k = (i & 255) as usize;
+        self.exp[k] + (self.exp[k + 1] - self.exp[k]) * f
+    }
+}
+
 pub struct Synth {
+    tables: Option<alloc::boxed::Box<Tables>>,
     seed: u32,
     voices: [Voice; VOICES],
     // Continuous layers: current value and target.
@@ -52,7 +92,7 @@ pub struct Synth {
 
 impl Synth {
     pub fn new() -> Synth {
-        Synth { seed: 0x1234_5678, voices: [Voice { kind: 0, t: 0.0, gain: 0.0, lp: 0.0, phase: 0.0 }; VOICES], wind: [0.12; 2], tread: [0.0; 2], hum: [0.0; 2], wind_lp: [0.0; 2], tread_lp: 0.0, tread_phase: 0.0, hum_phase: 0.0, gust: 0.0 }
+        Synth { tables: Some(alloc::boxed::Box::new(Tables::new())), seed: 0x1234_5678, voices: [Voice { kind: 0, t: 0.0, gain: 0.0, lp: 0.0, phase: 0.0 }; VOICES], wind: [0.12; 2], tread: [0.0; 2], hum: [0.0; 2], wind_lp: [0.0; 2], tread_lp: 0.0, tread_phase: 0.0, hum_phase: 0.0, gust: 0.0 }
     }
 
     #[inline]
@@ -106,6 +146,8 @@ impl Synth {
         let dt = 1.0 / rate;
         let glide = 1.0 - exp(-dt / 0.05);
         let scale = (44100.0 / rate).min(2.0);
+        let tables = self.tables.take().unwrap_or_else(|| alloc::boxed::Box::new(Tables::new()));
+        let (sin, exp) = (|x: f32| tables.sin(x), |x: f32| tables.exp(x));
         for frame in out.chunks_exact_mut(2) {
             for layer in [&mut self.wind, &mut self.tread, &mut self.hum] {
                 layer[0] += (layer[1] - layer[0]) * glide;
@@ -131,7 +173,9 @@ impl Synth {
             if self.hum_phase > TAU {
                 self.hum_phase -= TAU;
             }
-            mono += (sin(self.hum_phase) + 0.4 * sin(self.hum_phase * 2.01) + 0.2 * sin(self.hum_phase * 3.02)) * self.hum[0] * 0.5;
+            if self.hum[0] > 1e-4 {
+                mono += (sin(self.hum_phase) + 0.4 * sin(self.hum_phase * 2.01) + 0.2 * sin(self.hum_phase * 3.02)) * self.hum[0] * 0.5;
+            }
 
             for i in 0..VOICES {
                 let v = self.voices[i];
@@ -202,6 +246,7 @@ impl Synth {
             frame[0] = clip(mono + wind_l);
             frame[1] = clip(mono + wind_r);
         }
+        self.tables = Some(tables);
     }
 }
 

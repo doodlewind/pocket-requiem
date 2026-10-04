@@ -1,0 +1,18 @@
+[package]
+name = "requiem-handheld"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Device-independent half of the PSP and 3DS runtimes of Pocket Requiem: what to draw, the moving geometry, the interface and the game loop"
+
+[features]
+default = ["std"]
+# Without `std` the crate needs only `core` and `alloc` (the device builds).
+std = ["requiem-sim/std", "requiem-pack/std"]
+hw-sqrt = ["requiem-sim/hw-sqrt"]
+single-float = ["requiem-sim/single-float"]
+
+[dependencies]
+requiem-sim = { path = "../requiem-sim", default-features = false }
+requiem-pack = { path = "../requiem-pack", default-features = false }
+libm = "0.2"

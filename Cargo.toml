@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/requiem-sim", "crates/requiem-pack", "crates/requiem-cook"]
+members = ["crates/requiem-sim", "crates/requiem-pack", "crates/requiem-cook", "crates/requiem-handheld"]
 # The device apps build with their own toolchains and lockfiles.
 exclude = ["vita", "psp", "n3ds", "vendor"]
 

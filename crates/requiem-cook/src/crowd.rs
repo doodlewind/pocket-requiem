@@ -25,7 +25,7 @@ fn pad16(out: &mut Vec<u8>) {
 }
 
 /// How bare the metal is where the tint is `c`: plate is light and grey, cloth and leather are dark or warm.
-fn metal(c: &[f32]) -> u8 {
+pub fn metal(c: &[f32]) -> u8 {
     let (hi, lo) = (c[0].max(c[1]).max(c[2]), c[0].min(c[1]).min(c[2]));
     let grey = 1.0 - ((hi - lo) / hi.max(1e-3) * 4.0).clamp(0.0, 1.0);
     let bright = ((hi - 0.25) / 0.25).clamp(0.0, 1.0);

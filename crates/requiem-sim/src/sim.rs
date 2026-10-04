@@ -147,6 +147,10 @@ pub struct Sim {
     pub goal: u32,
     pub won: bool,
     pub auto: crate::auto::Auto,
+    /// A device's microsecond clock, to time the parts of a tick; `prof` then adds up the mage's act,
+    /// the army, the bolts and the camera, and her pose, until the device clears it.
+    pub clock: Option<fn() -> u32>,
+    pub prof: [u32; 4],
     seed: u32,
 }
 
@@ -168,6 +172,8 @@ impl Sim {
             goal,
             won: false,
             auto: crate::auto::Auto::new(),
+            clock: None,
+            prof: [0; 4],
             seed: 0x2545_f491,
             field,
             stage,
@@ -312,12 +318,22 @@ impl Sim {
         }
 
         let frozen = self.stop > 0;
+        let clock = self.clock;
+        let mut mark = clock.map_or(0, |c| c());
+        let mut lap = |prof: &mut [u32; 4], k: usize| {
+            if let Some(c) = clock {
+                let now = c();
+                prof[k] = prof[k].wrapping_add(now.wrapping_sub(mark));
+                mark = now;
+            }
+        };
         if frozen {
             // A strike holds her and what it struck; the rest of the field moves on.
             self.stop -= 1;
         } else {
             self.act(&input);
         }
+        lap(&mut self.prof, 0);
 
         // ---- the army, and its blows on her
         let target = self.p.pos;
@@ -358,6 +374,7 @@ impl Sim {
             }
         }
 
+        lap(&mut self.prof, 1);
         self.fly_bolts();
 
         if !self.won && self.p.kos >= self.goal {
@@ -374,7 +391,9 @@ impl Sim {
         }
 
         self.update_camera(&input, false);
+        lap(&mut self.prof, 2);
         self.pose(frozen);
+        lap(&mut self.prof, 3);
         // Effects that hold on to her follow her.
         for f in self.fx.items.iter_mut() {
             match f.follow {

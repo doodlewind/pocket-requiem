@@ -1,0 +1,81 @@
+{
+ "name": "psp30",
+ "target": "psp",
+ "presentation": {
+  "render": [
+   480,
+   272
+  ],
+  "display": [
+   480,
+   272
+  ],
+  "targetFps": 30
+ },
+ "texture": {
+  "format": "psp-t8",
+  "maxMips": 6
+ },
+ "bake": {
+  "sunRays": 4,
+  "sunSpread": 0.02,
+  "aoRays": 16,
+  "aoReach": 14.0
+ },
+ "limits": {
+  "maxMeshVertices": 65535,
+  "maxPackBytes": 20971520
+ },
+ "font": {
+  "sizes": [
+   10,
+   13,
+   22
+  ],
+  "atlas": [
+   256,
+   256
+  ]
+ },
+ "handheld": {
+  "page": [
+   512,
+   512
+  ],
+  "lod": {
+   "near": 64,
+   "mid": 130,
+   "far": 460
+  },
+  "fog": {
+   "near": 50,
+   "far": 500,
+   "density": 0.0021
+  },
+  "clip": {
+   "near": 0.4,
+   "far": 3000
+  },
+  "crowd": {
+   "lods": [
+    2,
+    3,
+    4
+   ],
+   "reach": [
+    12,
+    34,
+    70
+   ],
+   "budget": 10500,
+   "max": 110
+  },
+  "models": {
+   "mage": 20,
+   "demon": 24
+  },
+  "fxAtlas": 256,
+  "props": "mid",
+  "bigEdge": 3.0
+ }
+}

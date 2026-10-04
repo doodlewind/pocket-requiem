@@ -97,6 +97,19 @@ pub fn frames(clip: u8, u: f32) -> (u16, u16, f32) {
     }
 }
 
+/// The stored frame after `f` in its clip: a loop wraps, a clip that ends stays on its last frame.
+pub fn next(f: u16) -> u16 {
+    let mut at = 0;
+    for c in CLIPS.iter() {
+        if f < at + c.frames {
+            let k = f - at + 1;
+            return at + if k < c.frames { k } else if c.looped { 0 } else { c.frames - 1 };
+        }
+        at += c.frames;
+    }
+    f
+}
+
 /// The clip and the time in it (seconds, or cycles for a loop) of stored frame `f`.
 pub fn frame_time(f: u16) -> (u8, f32) {
     let mut at = 0;

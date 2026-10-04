@@ -9,6 +9,26 @@
 export type V3 = [number, number, number];
 export type Rgb = readonly [number, number, number];
 
+/** Scale on the tessellation of tubes, loops and cords: 1 for the reference and the Vita, less for the handhelds. */
+let detail = 1;
+/** Runs `build` with tubes, loops and cords at `k` of their sides and points. */
+export function withDetail<T>(k: number, build: () => T): T {
+  const was = detail;
+  detail = k;
+  try {
+    return build();
+  } finally {
+    detail = was;
+  }
+}
+/** Every `1 / detail`-th point of a path, keeping both ends. */
+function thin<T>(path: T[]): number[] {
+  const keep: number[] = [];
+  const step = Math.max(1, Math.round(1 / detail));
+  for (let k = 0; k < path.length; k++) if (k % step === 0 || k === path.length - 1) keep.push(k);
+  return path.length > 3 ? keep : path.map((_, k) => k);
+}
+
 /** A skinned mesh: two bones per vertex. */
 export interface SkinModel {
   /** Per vertex: position 3, normal 3, sRGB colour 3, bone a, bone b, weight of a. */
@@ -485,6 +505,12 @@ export class Rigid {
    * flattens it along the given axis. Caps close both ends.
    */
   tube(path: V3[], radii: number[], color: Rgb, sides = 8, squash: { axis: V3; factor: number } | null = null, endColor: Rgb = color) {
+    if (detail < 1) {
+      const keep = thin(path);
+      path = keep.map((k) => path[k]);
+      radii = keep.map((k) => radii[k]);
+      sides = Math.max(3, Math.round(sides * Math.sqrt(detail)));
+    }
     const rings: number[] = [];
     for (let k = 0; k < path.length; k++) {
       const t = norm(sub(path[Math.min(k + 1, path.length - 1)], path[Math.max(k - 1, 0)]));
@@ -564,6 +590,7 @@ export class Trim {
    * `lift`. `rise` moves a point along the axis by its angle. Returns the points, for `cord`.
    */
   loop(centre: V3, axis: V3, radius: number, count: number, lift: number, rise: (angle: number) => number = () => 0): V3[] {
+    count = Math.max(8, Math.round(count * detail));
     const a = norm(axis);
     const ref: V3 = Math.abs(a[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0];
     const u = norm(cross(a, ref));
@@ -582,6 +609,7 @@ export class Trim {
 
   /** A cord through `path` (closed when `closed`), `sides` around, flattened against the body by `flat`. */
   cord(path: V3[], radius: number, color: Rgb, closed: boolean, sides = 5, flat = 0.6) {
+    if (detail < 1) sides = 3;
     const n = path.length;
     const rings: number[] = [];
     for (let k = 0; k < n; k++) {

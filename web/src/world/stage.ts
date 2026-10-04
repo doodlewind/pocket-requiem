@@ -455,12 +455,12 @@ export function generate(seed: number): Generated {
   // ---- the ground: every 64 m cell at 4 m and at 8 m, every 256 m cell at 32 m
   for (let cj = 0; cj < n; cj += per) {
     for (let ci = 0; ci < n; ci += per) {
-      b.ground(Layer.Near, ci, cj, per, 1);
-      b.ground(Layer.Mid, ci, cj, per, 2);
+      b.ground(Layer.GroundNear, ci, cj, per, 1);
+      b.ground(Layer.GroundMid, ci, cj, per, 2);
     }
   }
   const big = SUPER / FIELD_CELL;
-  for (let cj = 0; cj < n; cj += big) for (let ci = 0; ci < n; ci += big) b.ground(Layer.Far, ci, cj, big, 8);
+  for (let cj = 0; cj < n; cj += big) for (let ci = 0; ci < n; ci += big) b.ground(Layer.GroundFar, ci, cj, big, 8);
   // For the light bake, the ground at 8 m.
   for (let j = 0; j < n; j += 2) {
     for (let i = 0; i < n; i += 2) {
