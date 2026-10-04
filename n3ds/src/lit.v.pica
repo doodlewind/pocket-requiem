@@ -1,0 +1,62 @@
+; The ground and the props under the spells' lights. As world.v.pica, and the
+; baked colour is multiplied by sqrt(1 + what the two strongest lights cast
+; there): the colour is encoded, so the square root is the light's own encoding.
+.fvec projection[4]
+; x: metres per position unit, y: 1 / 255, z and w: texture coordinate scales.
+.fvec scale
+; per light: its place with 1 / radius^2 in w, then its colour times the gain.
+.fvec cast[4]
+.constf ones(1.0, 1.0, 1.0, 1.0)
+.constf zeros(0.0, 0.0, 0.0, 0.0)
+.in inpos v0
+.in intex v1
+.in inclr v2
+.out outpos position
+.out outtex texcoord0
+.out outclr color
+.entry main
+.proc main
+    mul r0.xyz, scale.xxx, inpos.xyz
+    mov r0.w, ones.w
+    dp4 outpos.x, projection[0], r0
+    dp4 outpos.y, projection[1], r0
+    dp4 outpos.z, projection[2], r0
+    dp4 outpos.w, projection[3], r0
+    mul r1.xy, scale.zw, intex.xy
+    mov r1.z, zeros.z
+    mov r1.w, ones.w
+    mov outtex, r1
+
+    mov r7.xyz, ones.xyz
+    mov r9, cast[0]
+    add r8.xyz, r9.xyz, -r0.xyz
+    dp3 r8.w, r8, r8
+    mul r8.w, r9.w, r8.w
+    add r8.w, ones.x, -r8.w
+    max r8.w, zeros.x, r8.w
+    mul r8.w, r8.w, r8.w
+    mov r9.xyz, cast[1].xyz
+    mul r9.xyz, r8.www, r9.xyz
+    add r7.xyz, r7.xyz, r9.xyz
+    mov r9, cast[2]
+    add r8.xyz, r9.xyz, -r0.xyz
+    dp3 r8.w, r8, r8
+    mul r8.w, r9.w, r8.w
+    add r8.w, ones.x, -r8.w
+    max r8.w, zeros.x, r8.w
+    mul r8.w, r8.w, r8.w
+    mov r9.xyz, cast[3].xyz
+    mul r9.xyz, r8.www, r9.xyz
+    add r7.xyz, r7.xyz, r9.xyz
+    ; sqrt(x) = x * rsq(x); x is at least 1
+    rsq r8.x, r7.x
+    rsq r8.y, r7.y
+    rsq r8.z, r7.z
+    mul r7.xyz, r7.xyz, r8.xyz
+
+    mul r2.xyz, scale.yyy, inclr.xyz
+    mul r2.xyz, r2.xyz, r7.xyz
+    mov r2.w, ones.w
+    mov outclr, r2
+    end
+.end
