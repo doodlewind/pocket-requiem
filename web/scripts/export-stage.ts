@@ -4,13 +4,17 @@
 //   bun web/scripts/export-stage.ts [--seed 2026] [--out .pocket-build/stage/ir]
 //
 // Files: meshes.bin (render buckets), models.bin (the mage, and each kind of
-// knight at four mesh densities), atlas.rgba, collision.bin (the triangles
+// knight at five levels of detail), atlas.rgba, collision.bin (the triangles
 // the light bake casts rays against), stage.rqsw (the simulation's world),
+// fx.bin (the effects, lowered to templates and constants),
 // scene.json (light, air, LOD distances) and manifest.json, written last,
 // with the sha256 of each.
 
 import { mkdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { FX_ATLAS, paintFxAtlas } from "../src/fx/atlas";
+import { compileEffects } from "../src/fx/effects";
+import { TEMPLATE_STRIDE } from "../src/fx/ir";
 import { buildMage } from "../src/model/mage";
 import { buildKnight, buildKnightFar, KnightDetail } from "../src/model/knight";
 import { SKIN_STRIDE, SkinModel } from "../src/model/sdf";
@@ -96,6 +100,46 @@ function collisionBytes(v: number[], i: number[], k: number[]): Uint8Array {
   return bytes;
 }
 
+/**
+ * The lowered effects: a header, the atlas (one byte per texel), then per
+ * effect its layer count and per layer `program, blend, vertices, indices`,
+ * 32 constants, the template (12 floats per vertex) and the 16-bit indices.
+ */
+function fxBytes(seed: number): Uint8Array {
+  const fx = compileEffects();
+  let size = 16 + FX_ATLAS * FX_ATLAS;
+  for (const layers of fx.effects) {
+    size += 4;
+    for (const l of layers) size += 16 + 128 + l.vertices.byteLength + ((l.indices.byteLength + 3) & ~3);
+  }
+  const bytes = new Uint8Array(size);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(0, 0x58465152, true);
+  view.setUint32(4, 1, true);
+  view.setUint32(8, fx.effects.length, true);
+  view.setUint32(12, FX_ATLAS, true);
+  bytes.set(paintFxAtlas(seed), 16);
+  let at = 16 + FX_ATLAS * FX_ATLAS;
+  for (const layers of fx.effects) {
+    view.setUint32(at, layers.length, true);
+    at += 4;
+    for (const l of layers) {
+      view.setUint32(at, l.program, true);
+      view.setUint32(at + 4, l.blend, true);
+      view.setUint32(at + 8, l.vertices.length / TEMPLATE_STRIDE, true);
+      view.setUint32(at + 12, l.indices.length, true);
+      at += 16;
+      for (let k = 0; k < 32; k++) view.setFloat32(at + k * 4, l.rows[k], true);
+      at += 128;
+      bytes.set(new Uint8Array(l.vertices.buffer, l.vertices.byteOffset, l.vertices.byteLength), at);
+      at += l.vertices.byteLength;
+      bytes.set(new Uint8Array(l.indices.buffer, l.indices.byteOffset, l.indices.byteLength), at);
+      at += (l.indices.byteLength + 3) & ~3;
+    }
+  }
+  return bytes;
+}
+
 const t0 = performance.now();
 const gen = generate(seed);
 const buckets = gen.meshes.sorted().filter((b) => b.geo.ni > 0);
@@ -121,6 +165,7 @@ const files: Record<string, Uint8Array> = {
   "atlas.rgba": new Uint8Array(paintAtlas(seed).buffer),
   "collision.bin": collisionBytes(gen.col.v, gen.col.i, gen.col.k),
   "stage.rqsw": writeWorldFile(gen),
+  "fx.bin": fxBytes(seed),
 };
 
 // Strip boundaries let the compiler filter mips inside each strip.

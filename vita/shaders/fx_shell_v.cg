@@ -1,0 +1,43 @@
+void main(
+    float4 aA,
+    float4 aB,
+    float4 aC,
+    float4 iPosAge,
+    float4 iDirA,
+    uniform float4x4 uMvp,
+    uniform float4 uP[8],
+    uniform float4 uCam[3],
+    out float4 oPosition : POSITION,
+    out float4 oColor : TEXCOORD0,
+    out float2 oUv : TEXCOORD1)
+{
+    float a = lerp(1.0, iDirA.w, uP[2].w);
+    float t = iPosAge.w;
+    float te = pow(t, uP[2].x);
+    float rad = lerp(uP[0].x, uP[0].y, te) * a;
+    float hgt = lerp(uP[0].z, uP[0].w, te) * a;
+    float ang = uP[1].x + uP[1].y * t;
+    float cs = cos(ang);
+    float sn = sin(ang);
+    float3 q = float3(aA.x * cs - aA.z * sn, aA.y, aA.x * sn + aA.z * cs);
+    float3 nq = float3(aB.x * cs - aB.z * sn, aB.y, aB.x * sn + aB.z * cs);
+    float3 r;
+    float3 u;
+    float3 fh;
+    float3 rh;
+    frame(iDirA.xyz, r, u);
+    flatFrame(iDirA.xyz, fh, rh);
+    // ground: the shell's axis is up and its -z is ahead. facing: its axis is the direction.
+    float facing = step(0.5, uP[6].x);
+    float3 X = lerp(rh, r, facing);
+    float3 Y = lerp(float3(0.0, 1.0, 0.0), iDirA.xyz, facing);
+    float3 Z = lerp(-fh, u, facing);
+    float3 world = iPosAge.xyz + X * (q.x * rad) + Y * (q.y * hgt + uP[2].z) + Z * (q.z * rad) + iDirA.xyz * uP[6].y;
+    float3 nw = X * nq.x + Y * nq.y + Z * nq.z;
+    oPosition = mul(uMvp, float4(world, 1.0));
+    float edge = pow(1.0 - abs(dot(normalize(uCam[2].xyz - world), nw)), uP[1].z);
+    float4 c = lerp(uP[3], uP[4], t);
+    c.a *= pow(max(1.0 - t, 0.0), uP[2].y) * (uP[6].z + uP[1].w * edge);
+    oColor = c;
+    oUv = lerp(uP[5].xy, uP[5].zw, aC.xy);
+}

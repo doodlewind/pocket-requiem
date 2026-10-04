@@ -53,6 +53,8 @@ pub struct Scene {
     pub cell: f32,
     pub super_cell: f32,
     pub crowd_reach: Vec<f32>,
+    /// Triangles of knights a frame may draw.
+    pub crowd_budget: usize,
     /// Linear 0..2 to sRGB bytes.
     lut: Vec<u8>,
 }
@@ -87,6 +89,7 @@ impl Scene {
             cell: num(&s["cell"], 64.0),
             super_cell: num(&s["superCell"], 256.0),
             crowd_reach: meta["crowd"]["reach"].as_array().map(|a| a.iter().map(|v| num(v, 100.0)).collect()).unwrap_or_default(),
+            crowd_budget: meta["crowd"]["budget"].as_u64().unwrap_or(220_000) as usize,
             lut,
         }
     }

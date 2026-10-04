@@ -190,6 +190,7 @@ pub static MOVES: [Move; mv::COUNT] = [
         turn: 14,
         next_light: NONE,
         next_heavy: NONE,
+        safe: (6, 24),
         ..NO_MOVE
     },
     Move {
@@ -202,6 +203,7 @@ pub static MOVES: [Move; mv::COUNT] = [
         turn: 9,
         next_light: NONE,
         next_heavy: NONE,
+        safe: (4, 18),
         ..NO_MOVE
     },
     Move {
@@ -218,6 +220,7 @@ pub static MOVES: [Move; mv::COUNT] = [
         turn: 16,
         next_light: NONE,
         next_heavy: NONE,
+        safe: (8, 36),
         ..NO_MOVE
     },
     Move {
@@ -230,6 +233,7 @@ pub static MOVES: [Move; mv::COUNT] = [
         turn: 22,
         next_light: NONE,
         next_heavy: NONE,
+        safe: (8, 34),
         ..NO_MOVE
     },
     Move {
@@ -250,8 +254,8 @@ pub static MOVES: [Move; mv::COUNT] = [
         name: "unseal",
         len: 156,
         cancel: 150,
-        hits: &[hit(78, Ring { r: 26.0 }, 30000, 0.0, 0.0, 16, DISPEL, fx::SOUL, 1.0)],
-        cues: &[cue(0, fx::GATHER, 26.0), cue(76, fx::UNSEAL, 26.0)],
+        hits: &[hit(78, Ring { r: 19.0 }, 30000, 0.0, 0.0, 16, DISPEL, fx::SOUL, 1.0)],
+        cues: &[cue(0, fx::GATHER, 19.0), cue(76, fx::UNSEAL, 19.0)],
         lunge: (0, 0, 0.0),
         turn: 0,
         next_light: NONE,

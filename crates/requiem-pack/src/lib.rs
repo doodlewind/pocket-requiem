@@ -373,6 +373,67 @@ pub struct CrowdInstance {
 }
 
 
+// ---------------------------------------------------------------------- effects
+//
+// Section layout: `FxHeader`, then `effects` `FxEffect` records, `layers`
+// `FxLayer` records, the atlas (`atlas × atlas` bytes of brightness), and the
+// templates and indices the layers point into (offsets from the section's start).
+
+#[derive(Clone, Copy, Debug)]
+#[repr(C)]
+pub struct FxHeader {
+    pub effects: u32,
+    pub layers: u32,
+    /// Side of the square atlas in texels, and where its bytes start.
+    pub atlas: u32,
+    pub atlas_at: u32,
+}
+
+#[derive(Clone, Copy, Debug)]
+#[repr(C)]
+pub struct FxEffect {
+    pub first: u32,
+    pub count: u32,
+}
+
+/// One layer of an effect: which program places it, how it blends, its template and its constants.
+#[derive(Clone, Copy, Debug)]
+#[repr(C)]
+pub struct FxLayer {
+    /// 0 particles, 1 ring, 2 ribbon, 3 shell.
+    pub program: u32,
+    /// 0 add, 1 over.
+    pub blend: u32,
+    pub vtx_count: u32,
+    pub idx_count: u32,
+    /// `vtx_count` `FxVertex`.
+    pub vtx_at: u32,
+    pub idx_at: u32,
+    pub pad: [u32; 2],
+    /// Eight rows of four constants (`uP`).
+    pub rows: [f32; 32],
+}
+
+/// A template vertex: three signed-normalized vectors.
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
+pub struct FxVertex {
+    pub a: [i8; 4],
+    pub b: [i8; 4],
+    pub c: [i8; 4],
+}
+
+/// One live effect in an instanced call: place and age (0 to 1), direction and its number.
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
+pub struct FxInstance {
+    pub pos: [f32; 3],
+    pub age: f32,
+    pub dir: [f32; 3],
+    pub a: f32,
+}
+
+
 #[derive(Clone, Copy, Debug, Default)]
 #[repr(C)]
 pub struct FontHeader {

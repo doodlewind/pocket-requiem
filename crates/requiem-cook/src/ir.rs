@@ -74,6 +74,8 @@ pub struct Ir {
     /// The triangles the light bake casts rays against.
     pub collision: requiem_sim::collide::World,
     pub collision_triangles: usize,
+    /// The lowered effects (`fx.bin`).
+    pub fx: Vec<u8>,
 }
 
 pub fn sha256(bytes: &[u8]) -> String {
@@ -155,6 +157,7 @@ pub fn load(dir: &Path) -> Result<Ir, String> {
         world: file("stage.rqsw")?,
         collision,
         collision_triangles,
+        fx: file("fx.bin")?,
         scene,
         atlas,
         manifest,

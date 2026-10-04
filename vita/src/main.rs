@@ -12,6 +12,7 @@
 
 mod crowd;
 mod figures;
+mod fx;
 mod gpu;
 mod hostfs;
 mod hud;
@@ -75,10 +76,19 @@ unsafe fn set_clocks() {
 
 const WORLD_V: &str = include_str!("../shaders/world_v.cg");
 const WORLD_F: &str = include_str!("../shaders/world_f.cg");
+const WORLD_LIT_V: &str = include_str!("../shaders/world_lit_v.cg");
 const COLOR_V: &str = include_str!("../shaders/color_v.cg");
 const COLOR_F: &str = include_str!("../shaders/color_f.cg");
 const SKIN_V: &str = include_str!("../shaders/skin_v.cg");
 const CROWD_V: &str = include_str!("../shaders/crowd_v.cg");
+const FX_HEAD: &str = include_str!("../shaders/fx_head.cg");
+const FX_F: &str = include_str!("../shaders/fx_f.cg");
+const FX_V: [(&str, &str); 4] = [
+    ("fx_particles", include_str!("../shaders/fx_particles_v.cg")),
+    ("fx_ring", include_str!("../shaders/fx_ring_v.cg")),
+    ("fx_ribbon", include_str!("../shaders/fx_ribbon_v.cg")),
+    ("fx_shell", include_str!("../shaders/fx_shell_v.cg")),
+];
 const HUD_V: &str = include_str!("../shaders/hud_v.cg");
 const HUD_F: &str = include_str!("../shaders/hud_f.cg");
 
@@ -213,6 +223,9 @@ struct Settings {
     world: bool,
     crowd: bool,
     mage: bool,
+    fx: bool,
+    /// Replaces the profile's triangle budget for the army.
+    crowd_budget: Option<usize>,
     /// Scales the distances at which the army's levels of detail hand over.
     crowd_scale: f32,
     /// The first level of detail drawn with the far program.
@@ -234,11 +247,15 @@ fn apply_control(v: &Value, s: &mut Settings, sim: &mut Sim) {
     s.world = flag("world", s.world);
     s.crowd = flag("crowd", s.crowd);
     s.mage = flag("mage", s.mage);
+    s.fx = flag("fx", s.fx);
     if let Some(x) = v["lodNear"].as_f64() {
         s.lod_near = x as f32;
     }
     if let Some(x) = v["lodMid"].as_f64() {
         s.lod_mid = x as f32;
+    }
+    if let Some(x) = v["crowdBudget"].as_u64() {
+        s.crowd_budget = Some(x as usize);
     }
     if let Some(x) = v["crowdScale"].as_f64() {
         s.crowd_scale = (x as f32).clamp(0.1, 4.0);
@@ -375,6 +392,7 @@ fn main() {
                 crowd_head.scale
             );
             let world_prog = gpu.program("world", &defines, WORLD_V, WORLD_F, &Layout { attrs: &[("aPosition", 0, U16N, 3), ("aUv", 8, S16N, 2), ("aColor", 12, U8N, 4)], stride: 16 }, msaa.gxm())?;
+            let world_lit_prog = gpu.program("world_lit", &format!("{defines}#define LIGHT_GAIN float3(4.0, 2.8, 1.43)\n"), WORLD_LIT_V, WORLD_F, &Layout { attrs: &[("aPosition", 0, U16N, 3), ("aUv", 8, S16N, 2), ("aColor", 12, U8N, 4)], stride: 16 }, msaa.gxm())?;
             let color_prog = gpu.program("color", &defines, COLOR_V, COLOR_F, &Layout { attrs: &[("aPosition", 0, F32, 3), ("aColor", 12, U8N, 4)], stride: 16 }, msaa.gxm())?;
             let skin_prog = gpu.program("skin", &defines, SKIN_V, COLOR_F, &Layout { attrs: &[("aPosition", 0, F32, 3), ("aNormal", 12, S8N, 4), ("aColor", 16, U8N, 4), ("aBones", 20, U8, 2), ("aWeights", 22, U8N, 2)], stride: 24 }, msaa.gxm())?;
             // The army: two streams of stored frames, one of colours, one record per knight.
@@ -406,6 +424,24 @@ fn main() {
                 ],
                 msaa.gxm(),
             )?;
+            // The effects: a template stream and one record per live effect; the first fragment program adds, the second covers.
+            let mut fx_progs = Vec::new();
+            for (name, body) in FX_V {
+                let prog = gpu.program_blends(
+                    name,
+                    &defines,
+                    &format!("{FX_HEAD}{body}"),
+                    FX_F,
+                    &[
+                        Stream { stride: 12, instanced: false, attrs: &[("aA", 0, S8N, 4), ("aB", 4, S8N, 4), ("aC", 8, S8N, 4)] },
+                        Stream { stride: 32, instanced: true, attrs: &[("iPosAge", 0, F32, 4), ("iDirA", 16, F32, 4)] },
+                    ],
+                    msaa.gxm(),
+                    [gpu::Blend::Additive, gpu::Blend::Premultiplied],
+                )?;
+                fx_progs.push(fx::FxProgram::of(prog));
+            }
+            let fx_progs: [fx::FxProgram; 4] = fx_progs.try_into().map_err(|_| "effect programs".to_string())?;
             let hud_prog = gpu.program("hud", &defines, HUD_V, HUD_F, &Layout { attrs: &[("aPosition", 0, F32, 2), ("aUv", 8, F32, 2), ("aColor", 16, U8N, 4)], stride: 20 }, 0)?;
             let mut vram = Arena::new(Kind::Cdram, 16 * 1024 * 1024);
             let mut targets = Arena::new(Kind::Main, 4 * 1024 * 1024);
@@ -417,12 +453,13 @@ fn main() {
             let world = world::World::load(&p, &mut vram, per)?;
             let hud = Hud::load(&p, &mut vram)?;
             loading(font, &mut dev, &mut frame_no, &["Mustering the army".into()]);
-            let crowd = Crowd::load(&p, &scene.crowd_reach)?;
+            let crowd = Crowd::load(&p, &scene.crowd_reach, scene.crowd_budget)?;
             let figures = Figures::load(&p, &scene)?;
+            let effects = fx::Fx::load(&p, &mut vram)?;
             let sim = requiem_sim::worldfile::load(p.section(pack::SIMW)?).map_err(|e| e.to_string())?;
-            Ok((meta, scene, gpu, world_prog, color_prog, skin_prog, crowd_prog, crowd_far_prog, hud_prog, world, hud, sim, crowd, figures, vram, post, targets))
+            Ok((meta, scene, gpu, world_prog, world_lit_prog, color_prog, skin_prog, crowd_prog, crowd_far_prog, fx_progs, hud_prog, world, hud, sim, crowd, figures, effects, vram, post, targets))
         })();
-        let (meta, scene, gpu, world_prog, color_prog, skin_prog, crowd_prog, crowd_far_prog, hud_prog, world, mut hud, mut sim, mut crowd, mut figures, vram, mut post, _targets) = match loaded {
+        let (meta, scene, gpu, world_prog, world_lit_prog, color_prog, skin_prog, crowd_prog, crowd_far_prog, fx_progs, hud_prog, mut world, mut hud, mut sim, mut crowd, mut figures, mut effects, vram, mut post, _targets) = match loaded {
             Ok(x) => x,
             Err(e) => fail(font, &mut dev, &mut frame_no, e),
         };
@@ -433,14 +470,14 @@ fn main() {
         let crowd_lit = Lit::of(&crowd_prog);
         let crowd_far_lit = Lit::of(&crowd_far_prog);
 
-        let ring_bytes = Figures::frame_bytes() + Crowd::frame_bytes() + Hud::VERTEX_BYTES + 4096;
+        let ring_bytes = Figures::frame_bytes() + Crowd::frame_bytes() + fx::Fx::frame_bytes() + Hud::VERTEX_BYTES + 4096;
         let mut ring = match Ring::new(ring_bytes, 2) {
             Ok(r) => r,
             Err(e) => fail(font, &mut dev, &mut frame_no, e),
         };
         let mut fence = Fence::new(0, 2);
         let control = if live { control_watcher() } else { mpsc::channel().1 };
-        let mut set = Settings { auto: true, hud: true, stats: live, cull_cw: true, profile: false, lod_near: scene.lod_near, lod_mid: scene.lod_mid, world: true, crowd: true, mage: true, crowd_scale: 1.0, far_from: 2, pace: boot["pace"].as_i64().unwrap_or(2) as i32, look: Look::DEFAULT, view: None };
+        let mut set = Settings { auto: true, hud: true, stats: live, cull_cw: true, profile: false, lod_near: scene.lod_near, lod_mid: scene.lod_mid, world: true, crowd: true, mage: true, fx: true, crowd_budget: None, crowd_scale: 1.0, far_from: 2, pace: boot["pace"].as_i64().unwrap_or(2) as i32, look: Look::DEFAULT, view: None };
 
         // Sound: the synthesizer renders at 22.05 kHz; the host module doubles it for the port.
         let mut synth = requiem_sim::audio::Synth::new();
@@ -456,6 +493,7 @@ fn main() {
         let (mut sim_ms, mut build_ms, mut draw_ms, mut gpu_ms, mut wait_ms, mut crowd_ms) = (0.0f32, 0.0f32, 0.0f32, 0.0f32, 0.0f32, 0.0f32);
         let mut wstats = world::Stats::default();
         let mut cstats = crowd::Stats::default();
+        let mut fstats = fx::Stats::default();
         let mut mage_tris = 0u32;
         let mut clock_tick = 0u32;
         let mut most = (0u32, 0u32);
@@ -578,7 +616,8 @@ fn main() {
                 world_prog.bind(ctx, false);
                 gpu::state_opaque(ctx, set.cull_cw);
                 g::sceGxmSetFragmentTexture(ctx, 0, &world.atlas.gxm);
-                wstats = world.draw(ctx, &world_prog, &vp, eye, set.lod_near, set.lod_mid);
+                let lit = world::LitWorld { prog: &world_lit_prog, bounds: world_lit_prog.vs.param("uBounds"), cast: world_lit_prog.vs.param("uCast"), table: &cast };
+                wstats = world.draw(ctx, &world_prog, &vp, eye, set.lod_near, set.lod_mid, &lit);
             }
             if let Some(f) = &fframe {
                 figures.draw_shadows(ctx, &color_prog, &vp, f, scene.fog_density);
@@ -586,6 +625,9 @@ fn main() {
             if set.crowd {
                 let tc = Instant::now();
                 gpu::state_opaque(ctx, set.cull_cw);
+                if let Some(b) = set.crowd_budget {
+                    crowd.budget = b;
+                }
                 cstats = crowd.draw(ctx, &sim, &planes, eye, &mut ring, set.crowd_scale, set.far_from, |far| {
                     let (prog, lit) = if far { (&crowd_far_prog, &crowd_far_lit) } else { (&crowd_prog, &crowd_lit) };
                     prog.bind(ctx, false);
@@ -599,15 +641,26 @@ fn main() {
             if set.mage {
                 mage_tris = figures.draw_mage(ctx, &skin_prog, &skin_lit, &vp, &sim, &light, &cast, eye, scene.fog_density, set.cull_cw);
             }
+            if set.fx {
+                let right = look.cross(V3::UP).norm_or(v3(1.0, 0.0, 0.0));
+                fstats = effects.draw(ctx, &fx_progs, &sim, &vp, eye, right, right.cross(look), &mut ring);
+            }
+            // A heavy strike holds the frame: while it does, the picture hardens, drains and pulls toward its centre.
+            let impact = if sim.stop > 0 && sim.stop_len >= 5 { sim.stop as f32 / sim.stop_len as f32 } else { 0.0 };
+            let mut look = set.look;
+            look.contrast += 0.55 * impact;
+            look.saturation -= 0.6 * impact;
+            look.bloom_gain += 0.6 * impact;
+            look.vignette += 0.25 * impact;
             if scene_error.is_none() {
-                scene_error = post.finish_scene(ctx, &set.look, &vp, eye, scene.sun_dir).err();
+                scene_error = post.finish_scene(ctx, &look, &vp, eye, scene.sun_dir).err();
             }
             if let Some(e) = scene_error {
                 pocketjs_vita::vita_log(format_args!("requiem: {e}"));
             }
             g::vita2d_pool_reset();
             g::vita2d_start_drawing_advanced(core::ptr::null_mut(), 0);
-            post.composite(ctx, &set.look, sim.p.hover * if set.view.is_some() { 0.0 } else { 0.6 });
+            post.composite(ctx, &look, max(sim.p.hover * 0.6, impact * 0.9) * if set.view.is_some() { 0.0 } else { 1.0 });
             hud.flush(ctx, &hud_prog, figures.quad_ib);
             // vita2d's overlay (the debug menu) expects its own viewport and no depth.
             g::sceGxmSetViewport(ctx, 480.0, 480.0, 272.0, -272.0, 0.5, 0.5);
@@ -647,9 +700,10 @@ fn main() {
                     "frameMs": timing.avg(), "worstMs": timing.worst(), "late": timing.late, "frames": timing.frames, "pace": set.pace,
                     "cpuMs": {"sim": sim_ms, "build": build_ms, "draw": draw_ms, "crowd": crowd_ms, "fenceWait": wait_ms},
                     "gpuMs": if set.profile { json!(gpu_ms) } else { Value::Null },
-                    "world": {"draws": wstats.draws, "tris": wstats.tris, "near": wstats.near, "mid": wstats.mid, "far": wstats.far},
-                    "crowd": {"shown": cstats.shown, "draws": cstats.draws, "tris": cstats.tris, "byLod": cstats.by_lod, "free": sim.crowd.free.len(), "standing": sim.crowd.standing(), "mostShown": most.0, "mostTris": most.1},
+                    "world": {"draws": wstats.draws, "tris": wstats.tris, "near": wstats.near, "mid": wstats.mid, "far": wstats.far, "lit": wstats.lit},
+                    "crowd": {"shown": cstats.shown, "draws": cstats.draws, "tris": cstats.tris, "byLod": cstats.by_lod, "pulled": cstats.pulled, "budget": crowd.budget, "free": sim.crowd.free.len(), "standing": sim.crowd.standing(), "mostShown": most.0, "mostTris": most.1},
                     "mage": {"tris": mage_tris},
+                    "fx": {"live": fstats.live, "draws": fstats.draws, "tris": fstats.tris},
                     "settings": {"auto": set.auto, "lodNear": set.lod_near, "lodMid": set.lod_mid, "crowdScale": set.crowd_scale, "cullCw": set.cull_cw, "profile": set.profile, "world": set.world, "crowd": set.crowd, "mage": set.mage, "post": {"bloom": set.look.bloom, "rays": set.look.rays, "speed": set.look.speed}},
                     "player": {"pos": [sim.p.pos.x, sim.p.pos.y, sim.p.pos.z], "act": sim.p.act, "move": sim.p.mv, "hp": sim.p.hp, "mana": sim.p.mana, "kos": sim.p.kos, "chain": sim.p.chain, "tick": sim.tick, "stop": sim.stop},
                     "programs": {"compiled": gpu.compiled, "cached": gpu.cached},

@@ -3,7 +3,8 @@
 //! A packaged build ships the GXPs and never loads the compiler.
 
 use pocket_vita_gxm::patcher::Patcher;
-use pocket_vita_gxm::program::{self, Attr, Blend, Gxp, Output, Registered};
+pub use pocket_vita_gxm::program::Blend;
+use pocket_vita_gxm::program::{self, Attr, Gxp, Output, Registered};
 use pocket_vita_gxm::shacccg::{Compiler, Stage};
 use vita2d_sys as g;
 
@@ -164,6 +165,11 @@ impl Gpu {
     /// As `program`, for a vertex program that reads several streams (the army's
     /// frames, colours and instances).
     pub unsafe fn program_streams(&mut self, name: &str, defines: &str, vs: &str, fs: &str, streams: &[Stream], msaa: u32) -> Result<Program, String> {
+        self.program_blends(name, defines, vs, fs, streams, msaa, [Blend::Opaque, Blend::Alpha])
+    }
+
+    /// As `program_streams`, choosing what the two fragment programs blend with: `bind(false)` takes the first.
+    pub unsafe fn program_blends(&mut self, name: &str, defines: &str, vs: &str, fs: &str, streams: &[Stream], msaa: u32, blends: [Blend; 2]) -> Result<Program, String> {
         let vsrc = format!("{defines}{vs}");
         let fsrc = format!("{defines}{fs}");
         let vbytes = self.gxp(&format!("{name}_v"), &vsrc, Stage::Vertex)?;
@@ -174,7 +180,8 @@ impl Gpu {
         let mut layout = Vec::new();
         for (index, s) in streams.iter().enumerate() {
             for (attr, offset, format, count) in s.attrs {
-                let reg = vs.attribute_index(attr).ok_or(format!("{name}: no attribute {attr}"))?;
+                // A program that does not read an attribute of its stream has none to bind.
+                let Some(reg) = vs.attribute_index(attr) else { continue };
                 attributes.push(g::SceGxmVertexAttribute { streamIndex: index as u16, offset: *offset, format: *format as u8, componentCount: *count, regIndex: reg });
             }
             let source = if s.instanced { g::SceGxmIndexSource_SCE_GXM_INDEX_SOURCE_INSTANCE_16BIT } else { g::SceGxmIndexSource_SCE_GXM_INDEX_SOURCE_INDEX_16BIT };
@@ -185,8 +192,8 @@ impl Gpu {
         if r < 0 {
             return Err(format!("{name}: sceGxmShaderPatcherCreateVertexProgram 0x{:08x}", r as u32));
         }
-        let opaque = program::fragment_program(self.patcher.raw, &fs, Output::Uchar4, msaa, Blend::Opaque, vs.program())?;
-        let alpha = program::fragment_program(self.patcher.raw, &fs, Output::Uchar4, msaa, Blend::Alpha, vs.program())?;
+        let opaque = program::fragment_program(self.patcher.raw, &fs, Output::Uchar4, msaa, blends[0], vs.program())?;
+        let alpha = program::fragment_program(self.patcher.raw, &fs, Output::Uchar4, msaa, blends[1], vs.program())?;
         let u_mvp = vs.param("uMvp");
         let u_fog = vs.param("uFog");
         let u_bones = vs.param("uBones");

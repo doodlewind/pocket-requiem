@@ -31,6 +31,8 @@ pub struct Stats {
     pub draws: u32,
     pub tris: u32,
     pub by_lod: [u32; 5],
+    /// How far the budget pulled the hand-over distances in this frame (1: not at all).
+    pub pulled: f32,
 }
 
 pub struct Crowd {
@@ -40,6 +42,8 @@ pub struct Crowd {
     /// Squared distance at which each level of detail hands over to the next.
     reach2: Vec<f32>,
     pub far: f32,
+    /// Triangles of knights a frame may draw.
+    pub budget: usize,
     pub scale: f32,
     draws: Vec<Draw>,
     order: Vec<(u32, u32)>,
@@ -49,7 +53,7 @@ pub struct Crowd {
 impl Crowd {
     /// # Safety
     /// GXM is initialized.
-    pub unsafe fn load(p: &Pack, reach: &[f32]) -> Result<Crowd, String> {
+    pub unsafe fn load(p: &Pack, reach: &[f32], budget: usize) -> Result<Crowd, String> {
         let data = p.section(pack::CRWD)?;
         let head: CrowdHeader = pack::read(data, 0).ok_or("crowd header")?;
         let count = (head.kinds * head.lods) as usize;
@@ -68,7 +72,7 @@ impl Crowd {
             }
             meshes.push(Mesh { vtx_count: m.vtx_count as usize, idx_count: m.idx_count, color: base.add(m.color_at as usize), idx: base.add(m.idx_at as usize).cast(), frames: base.add(m.frames_at as usize) });
         }
-        Ok(Crowd { bytes: block.size(), _block: block, meshes, lods: head.lods as usize, reach2: reach.iter().map(|r| r * r).collect(), far: *reach.last().unwrap_or(&300.0), scale: head.scale, draws: Vec::with_capacity(CAPACITY), order: Vec::with_capacity(CAPACITY) })
+        Ok(Crowd { bytes: block.size(), _block: block, meshes, lods: head.lods as usize, reach2: reach.iter().map(|r| r * r).collect(), far: *reach.last().unwrap_or(&300.0), budget, scale: head.scale, draws: Vec::with_capacity(CAPACITY), order: Vec::with_capacity(CAPACITY) })
     }
 
     /// Bytes `draw` takes from the ring.
@@ -86,15 +90,29 @@ impl Crowd {
         let mut stats = Stats::default();
         sim.crowd.draw(&sim.field, sim.tick, planes, eye, self.far * scale, &mut self.draws);
         self.order.clear();
-        let k2 = scale * scale;
-        for (i, d) in self.draws.iter().enumerate().take(CAPACITY) {
+        // The triangle budget: pull the hand-over distances in (never the last, where a knight stops being drawn)
+        // until the knights in view fit. A press of knights round the eye is then drawn a level coarser, not late.
+        let level = |d2: f32, k2: f32| {
             let mut lod = self.lods - 1;
-            for (l, r) in self.reach2.iter().enumerate() {
-                if d.dist2 < r * k2 {
+            for (l, r) in self.reach2[..self.lods - 1].iter().enumerate() {
+                if d2 < r * k2 {
                     lod = l;
                     break;
                 }
             }
+            lod
+        };
+        let mut k2 = scale * scale;
+        for _ in 0..7 {
+            let tris: usize = self.draws.iter().take(CAPACITY).map(|d| self.meshes[(d.kind as usize).min(2) * self.lods + level(d.dist2, k2)].idx_count as usize / 3).sum();
+            if tris <= self.budget {
+                break;
+            }
+            k2 *= 0.62;
+        }
+        stats.pulled = sqrt(k2) / scale;
+        for (i, d) in self.draws.iter().enumerate().take(CAPACITY) {
+            let lod = level(d.dist2, k2);
             stats.by_lod[lod.min(4)] += 1;
             // Level first, so the draws of one program are together.
             self.order.push(((lod as u32) << 16 | (d.kind as u32).min(2) << 14 | (d.a as u32) << 7 | d.b as u32, i as u32));

@@ -1,7 +1,7 @@
 //! Stage compiler: StageIR in, device pack out.
 //!
 //! Passes, in order (`RECIPE`): read-source, bake-lighting, merge-cells,
-//! quantize, bake-crowd, atlas-mips, interface-font, structural-budgets. The
+//! quantize, bake-crowd, lower-effects, atlas-mips, interface-font, structural-budgets. The
 //! compile receipt next to the pack records the source, the profile, every
 //! section's size and hash, and the statistics a frame budget is argued from.
 //!
@@ -10,6 +10,7 @@
 mod bake;
 mod crowd;
 mod font;
+mod fx;
 mod ir;
 mod texture;
 
@@ -22,7 +23,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Instant;
 
-const RECIPE: &[(&str, u32)] = &[("read-source", 1), ("bake-lighting", 1), ("merge-cells", 1), ("quantize", 1), ("bake-crowd", 1), ("atlas-mips", 1), ("interface-font", 1), ("structural-budgets", 1)];
+const RECIPE: &[(&str, u32)] = &[("read-source", 1), ("bake-lighting", 1), ("merge-cells", 1), ("quantize", 1), ("bake-crowd", 1), ("lower-effects", 1), ("atlas-mips", 1), ("interface-font", 1), ("structural-budgets", 1)];
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -43,6 +44,8 @@ struct Profile {
 struct CrowdProfile {
     lods: Vec<u32>,
     reach: Vec<f32>,
+    /// Triangles of knights a frame may draw; past it the runtime pulls the hand-over distances in.
+    budget: u32,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -254,6 +257,7 @@ fn run() -> Result<(), String> {
     let t = Instant::now();
     let (crowd_bytes, crowd_stats) = crowd::bake(&ir, &profile.crowd.lods)?;
     let crowd_ms = t.elapsed().as_millis();
+    let (fx_bytes, fx_stats) = fx::lower(&ir.fx)?;
 
     // atlas-mips-bc1, interface-font
     let t = Instant::now();
@@ -271,6 +275,7 @@ fn run() -> Result<(), String> {
         "bakeTriangles": ir.collision_triangles,
         "atlasMips": mips,
         "crowd": crowd_stats,
+        "effects": fx_stats,
         "stage": {"knights": stage.musters.iter().map(|m| m.cols as u32 * m.rows as u32).sum::<u32>(), "cohorts": stage.musters.len(), "obstacles": field.obstacles.len(), "heights": field.n},
     });
     let mut scene = ir.scene_json.clone();
@@ -286,7 +291,7 @@ fn run() -> Result<(), String> {
         "profile": profile.name,
         "presentation": {"render": profile.presentation.render, "display": profile.presentation.display, "targetFps": profile.presentation.target_fps},
         "scene": scene,
-        "crowd": {"reach": profile.crowd.reach},
+        "crowd": {"reach": profile.crowd.reach, "budget": profile.crowd.budget},
         "stats": stats,
     });
     let meta_bytes = serde_json::to_vec(&meta).map_err(|e| e.to_string())?;
@@ -299,6 +304,7 @@ fn run() -> Result<(), String> {
         (pack::IDX0, pack::slice_bytes(&idx)),
         (pack::MODL, &model_bytes),
         (pack::CRWD, &crowd_bytes),
+        (pack::FXPK, &fx_bytes),
         (pack::FONT, &font),
         (pack::SIMW, &ir.world),
     ];

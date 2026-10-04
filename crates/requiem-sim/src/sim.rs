@@ -157,7 +157,7 @@ impl Sim {
         let mut s = Sim {
             tick: 0,
             p: Player { pos: V3::ZERO, vel: V3::ZERO, yaw: 0.0, act: act::FREE, t: 0, mv: 0, hp: tune::HP_MAX, mana: 0.0, chain: 0, chain_t: 0, kos: 0, hover: 0.0, phase: 0.0, spin: 0.0, buffer: 0, buffer_age: 0, prev: 0, hurt_t: 0, volley: 0 },
-            cam: Camera { pos: V3::ZERO, look: v3(0.0, 0.0, -1.0), fov: 58.0, yaw: 0.0, pitch: 0.3, dist: 6.4, shake: 0.0, punch: 0.0, idle: 0, focus: V3::ZERO },
+            cam: Camera { pos: V3::ZERO, look: v3(0.0, 0.0, -1.0), fov: 58.0, yaw: 0.0, pitch: 0.4, dist: 7.2, shake: 0.0, punch: 0.0, idle: 0, focus: V3::ZERO },
             crowd,
             fx: FxList::new(),
             bolts: [Bolt { pos: V3::ZERO, vel: V3::ZERO, target: V3::ZERO, age: 0, alive: 0 }; BOLTS],
@@ -203,7 +203,7 @@ impl Sim {
         p.buffer = 0;
         p.volley = 0;
         self.cam.yaw = yaw;
-        self.cam.pitch = 0.3;
+        self.cam.pitch = 0.4;
         self.cam.shake = 0.0;
         self.cam.punch = 0.0;
         self.cam.focus = p.pos + v3(0.0, 1.15, 0.0);
@@ -277,7 +277,7 @@ impl Sim {
             p.chain_t = 0;
             let was = p.mana;
             if hit.react != crate::moves::react::DISPEL {
-                p.mana = min(p.mana + s.count as f32 * 0.9 + s.kills as f32 * 1.4, tune::MANA_MAX);
+                p.mana = min(p.mana + s.count as f32 * 0.4 + s.kills as f32 * 0.9, tune::MANA_MAX);
             }
             if was < tune::MANA_MAX && p.mana >= tune::MANA_MAX {
                 self.events |= ev::READY;
@@ -636,12 +636,12 @@ impl Sim {
             if abs(d) < 2.5 {
                 c.yaw = wrap_angle(c.yaw + d * (1.0 - exp(-(0.9 + p.hover * 1.2) * DT)));
             }
-            c.pitch = ease(c.pitch, 0.3, 0.6, DT);
+            c.pitch = ease(c.pitch, 0.4, 0.6, DT);
         }
         let unsealing = p.act == act::MOVE && p.mv == mv::UNSEAL;
-        let dist = if unsealing { 9.5 } else { 6.4 + p.hover * 1.6 };
+        let dist = if unsealing { 10.5 } else { 7.2 + p.hover * 1.6 };
         c.dist = if snap { dist } else { ease(c.dist, dist, 3.0, DT) };
-        let focus = p.pos + v3(0.0, 1.2 + p.hover * 0.3, 0.0) + p.vel * 0.1;
+        let focus = p.pos + v3(0.0, 1.35 + p.hover * 0.3, 0.0) + p.vel * 0.1;
         c.focus = if snap { focus } else { c.focus.ease(focus, 12.0, DT) };
         let dir = forward(c.yaw, -c.pitch);
         let mut pos = c.focus - dir * c.dist;

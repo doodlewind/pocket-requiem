@@ -41,7 +41,8 @@ pub struct Look {
 }
 
 impl Look {
-    pub const DEFAULT: Look = Look { bloom: true, rays: true, speed: true, threshold: 0.86, bloom_gain: 0.7, rays_gain: 0.9, vignette: 0.24, contrast: 1.1, saturation: 1.16, warm: 0.05, cool: 0.06 };
+    /// The night: what a spell lights blooms, the moon throws shafts, the shadows lean blue.
+    pub const DEFAULT: Look = Look { bloom: true, rays: true, speed: true, threshold: 0.66, bloom_gain: 0.95, rays_gain: 0.55, vignette: 0.3, contrast: 1.08, saturation: 1.12, warm: 0.02, cool: 0.1 };
 }
 
 struct Pass {

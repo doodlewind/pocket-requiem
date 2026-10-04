@@ -1,0 +1,21 @@
+// Effects. A layer of an effect is a fixed template of vertices and eight
+// rows of constants (uP); an instance is a place and an age, a direction and
+// one number. Every vertex is placed from the age: nothing is simulated.
+// The formulas are those of web/src/render/fx.ts.
+//
+// uCam: 0 the eye's right and the time in seconds, 1 its up, 2 the eye.
+
+/** The effect's frame: right and up across its direction. */
+void frame(float3 f, out float3 r, out float3 u)
+{
+    r = normalize(cross(f, float3(0.0, 1.0, 0.0)) + float3(0.0001, 0.0, 0.0));
+    u = cross(r, f);
+}
+
+/** Flat on the ground: forward and right. */
+void flatFrame(float3 f, out float3 fh, out float3 rh)
+{
+    fh = normalize(float3(f.x, 0.0, f.z) + float3(0.0, 0.0, -0.0001));
+    rh = float3(-fh.z, 0.0, fh.x);
+}
+

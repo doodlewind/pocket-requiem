@@ -40,7 +40,7 @@ const ENGAGE: f32 = 52.0;
 /// A free knight further than this from her stands still.
 const LEASH: f32 = 110.0;
 /// Knights that may be winding up or striking at once.
-const ATTACKERS: u32 = 5;
+const ATTACKERS: u32 = 4;
 const GRAVITY: f32 = 22.0;
 /// Ticks a cross-fade between two clips takes.
 pub const FADE: u8 = 6;
@@ -370,21 +370,24 @@ impl Crowd {
                     }
                     let d = sqrt(d2).max(1e-3);
                     let reach = knight::REACH[self.kind[i] as usize] * if self.big[i] != 0 { CAPTAIN_SCALE } else { 1.0 };
-                    let ring = reach * 0.8;
                     let want = atan2(-dx, -dz);
                     self.yaw[i] = wrap_angle(self.yaw[i] + clamp(wrap_angle(want - self.yaw[i]), -5.0 * dt, 5.0 * dt));
                     if self.cool[i] > 0 {
                         self.cool[i] -= 1;
                     }
+                    // A knight whose turn has not come stands off in a loose ring, each at its own distance;
+                    // one whose turn has come steps in to its weapon's reach.
+                    let waiting = self.cool[i] > 0 || self.attackers >= ATTACKERS;
+                    let ring = if waiting { 3.2 + (hash(i as u32) & 255) as f32 / 255.0 * 3.6 } else { reach * 0.8 };
                     let mut speed = 0.0;
                     if d > ring + 0.3 {
-                        speed = if d > 7.0 { knight::RUN_SPEED } else { knight::WALK_SPEED * 1.2 };
+                        speed = if d > 9.0 { knight::RUN_SPEED } else { knight::WALK_SPEED * 1.2 };
                         if self.big[i] != 0 {
                             speed *= 0.85;
                         }
                     } else if d < ring - 0.5 {
                         speed = -knight::WALK_SPEED * 0.7;
-                    } else if self.cool[i] == 0 && self.attackers < ATTACKERS && target.y - self.y[i] < 2.2 {
+                    } else if !waiting && target.y - self.y[i] < 2.2 {
                         let which = if hash(i as u32 ^ tick.wrapping_mul(31)) & 1 == 0 { clip::CHOP } else { clip::SWEEP };
                         self.state[i] = state::ATTACK;
                         self.set_clip(i, which, tick);
@@ -459,14 +462,14 @@ impl Crowd {
                         let reach = knight::REACH[self.kind[i] as usize] * if self.big[i] != 0 { CAPTAIN_SCALE } else { 1.0 };
                         fx.spawn(tick, fx::kind::SLASH, v3(self.x[i], self.y[i] + 1.1, self.z[i]), f, reach, 0);
                         if d < reach + 0.4 && (dx * f.x + dz * f.z) / d > 0.45 && blow < 4 && abs(target.y - self.y[i]) < 2.4 {
-                            let damage = [42.0, 50.0, 64.0][self.kind[i] as usize] * if self.big[i] != 0 { 1.5 } else { 1.0 };
+                            let damage = [16.0, 20.0, 27.0][self.kind[i] as usize] * if self.big[i] != 0 { 1.6 } else { 1.0 };
                             self.blows[blow] = Some(Blow { damage, dir: v3(dx / d, 0.0, dz / d) });
                             blow += 1;
                         }
                     }
                     if since >= 78 {
                         self.state[i] = state::CHASE;
-                        self.cool[i] = 70 + (hash(i as u32 ^ tick) % 150) as u16;
+                        self.cool[i] = 110 + (hash(i as u32 ^ tick) % 260) as u16;
                     }
                 }
                 state::STAGGER | state::KNOCK => {
@@ -596,6 +599,8 @@ impl Crowd {
             };
             let big = self.big[i] != 0;
             let damage = if hit.react == react::DISPEL && big { 360 } else { hit.damage };
+            // A knight already undone and still in the air can be struck again; it is counted once.
+            let stood = self.hp[i] > 0;
             self.hp[i] = self.hp[i].saturating_sub(damage);
             let dead = self.hp[i] <= 0;
             out.count += 1;
@@ -657,7 +662,7 @@ impl Crowd {
             }
             // The freeze: the knight holds its frame as long as she does, a wave of undoing a little longer the further out.
             self.freeze[i] = if hit.react == react::DISPEL { (hit.stop as f32 + d * 1.6) as u8 } else { hit.stop };
-            if dead {
+            if dead && stood {
                 out.kills += 1;
                 self.fallen += 1;
             }
@@ -777,7 +782,8 @@ impl Crowd {
             let i = i as usize;
             let mut p = v3(self.x[i], self.y[i], self.z[i]);
             let dist2 = (p - eye).len2();
-            if dist2 > far2 || !inside(p + v3(0.0, 1.0, 0.0), 2.2) {
+            // A knight the eye stands in would fill the frame.
+            if dist2 > far2 || dist2 < 2.4 * 2.4 || !inside(p + v3(0.0, 1.0, 0.0), 2.2) {
                 continue;
             }
             let (mut a, mut b, mut blend) = self.pair(i, tick);

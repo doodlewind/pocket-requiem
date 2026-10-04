@@ -43,6 +43,8 @@ pub struct Stats {
     pub near: u32,
     pub mid: u32,
     pub far: u32,
+    /// Meshes drawn with a spell's light on them.
+    pub lit: u32,
 }
 
 pub struct World {
@@ -57,6 +59,17 @@ pub struct World {
     backdrop: Range,
     pub atlas: Texture,
     pub bytes: usize,
+    /// Meshes of this frame that a spell's light reaches: drawn after the rest, with the lit program.
+    lit: Vec<u32>,
+}
+
+/// The program for meshes a spell lights, and where its uniforms go.
+pub struct LitWorld<'a> {
+    pub prog: &'a Program,
+    pub bounds: *const g::SceGxmProgramParameter,
+    pub cast: *const g::SceGxmProgramParameter,
+    /// Per light: its place and radius, then its colour (as the lit programs take them, with 1 / radius² in w).
+    pub table: &'a [f32; 32],
 }
 
 fn grow(min: &mut [f32; 3], max: &mut [f32; 3], r: &MeshRec) {
@@ -146,14 +159,20 @@ impl World {
         atlas.set_wrap(Wrap::Repeat, Wrap::Clamp);
         atlas.set_filter(true, true);
 
-        Ok(World { vtx: base, idx: base.add(idx_at).cast(), bytes: block.size(), _block: block, recs, lists, cells, supers, backdrop, atlas })
+        Ok(World { vtx: base, idx: base.add(idx_at).cast(), bytes: block.size(), _block: block, recs, lists, cells, supers, backdrop, atlas, lit: Vec::with_capacity(64) })
     }
 
     #[inline]
-    unsafe fn draw_range(&self, ctx: *mut g::SceGxmContext, prog: &Program, vp: &Mat4, planes: &[[f32; 4]; 6], r: Range, stats: &mut Stats, test: bool) {
-        for &i in &self.lists[r.first as usize..(r.first + r.count) as usize] {
+    unsafe fn draw_range(&mut self, ctx: *mut g::SceGxmContext, prog: &Program, vp: &Mat4, planes: &[[f32; 4]; 6], r: Range, stats: &mut Stats, test: bool, lights: &[(V3, f32)]) {
+        for k in r.first as usize..(r.first + r.count) as usize {
+            let i = self.lists[k];
             let m = &self.recs[i as usize];
             if test && !mat::visible(planes, &m.min, &m.max) {
+                continue;
+            }
+            // Within a spell's light: it draws later, lit.
+            if lights.iter().any(|(p, r)| mat::box_distance(*p, &m.min, &m.max) < *r) {
+                self.lit.push(i);
                 continue;
             }
             let mvp = mat::with_bounds(vp, m.min, [m.max[0] - m.min[0], m.max[1] - m.min[1], m.max[2] - m.min[2]]);
@@ -168,32 +187,70 @@ impl World {
     ///
     /// # Safety
     /// Inside a scene on `ctx`.
-    pub unsafe fn draw(&self, ctx: *mut g::SceGxmContext, prog: &Program, vp: &Mat4, eye: V3, lod_near: f32, lod_mid: f32) -> Stats {
+    pub unsafe fn draw(&mut self, ctx: *mut g::SceGxmContext, prog: &Program, vp: &Mat4, eye: V3, lod_near: f32, lod_mid: f32, lit: &LitWorld) -> Stats {
         let planes = mat::planes(vp);
         let mut stats = Stats::default();
-        self.draw_range(ctx, prog, vp, &planes, self.backdrop, &mut stats, false);
-        for s in &self.supers {
+        self.lit.clear();
+        // The lights that are on, as centres and radii.
+        let mut lights = [(V3::ZERO, 0.0f32); 4];
+        let mut on = 0;
+        for k in 0..4 {
+            let t = &lit.table[k * 8..k * 8 + 8];
+            if t[4] + t[5] + t[6] > 0.01 {
+                lights[on] = (V3 { x: t[0], y: t[1], z: t[2] }, 1.0 / requiem_sim::math::sqrt(t[3].max(1e-6)));
+                on += 1;
+            }
+        }
+        let lights = &lights[..on];
+        self.draw_range(ctx, prog, vp, &planes, self.backdrop, &mut stats, false, &[]);
+        for si in 0..self.supers.len() {
+            let s = &self.supers[si];
+            let (s_far, s_cells, s_min, s_max) = (s.far, s.cells, s.min, s.max);
+            let s = Super { min: s_min, max: s_max, far: s_far, cells: s_cells };
             if !mat::visible(&planes, &s.min, &s.max) {
                 continue;
             }
             if s.far.count > 0 && mat::box_distance(eye, &s.min, &s.max) > lod_mid {
                 let before = stats.draws;
-                self.draw_range(ctx, prog, vp, &planes, s.far, &mut stats, true);
+                self.draw_range(ctx, prog, vp, &planes, s.far, &mut stats, true, &[]);
                 stats.far += stats.draws - before;
                 continue;
             }
-            for c in &self.cells[s.cells.first as usize..(s.cells.first + s.cells.count) as usize] {
-                if !mat::visible(&planes, &c.min, &c.max) {
+            for ci in s.cells.first as usize..(s.cells.first + s.cells.count) as usize {
+                let (c_min, c_max, c_near, c_mid) = (self.cells[ci].min, self.cells[ci].max, self.cells[ci].near, self.cells[ci].mid);
+                if !mat::visible(&planes, &c_min, &c_max) {
                     continue;
                 }
-                let before = stats.draws;
-                if mat::box_distance(eye, &c.min, &c.max) < lod_near {
-                    self.draw_range(ctx, prog, vp, &planes, c.near, &mut stats, false);
-                    stats.near += stats.draws - before;
+                let before = stats.draws + self.lit.len() as u32;
+                if mat::box_distance(eye, &c_min, &c_max) < lod_near {
+                    self.draw_range(ctx, prog, vp, &planes, c_near, &mut stats, false, lights);
+                    stats.near += stats.draws + self.lit.len() as u32 - before;
                 } else {
-                    self.draw_range(ctx, prog, vp, &planes, c.mid, &mut stats, false);
-                    stats.mid += stats.draws - before;
+                    self.draw_range(ctx, prog, vp, &planes, c_mid, &mut stats, false, lights);
+                    stats.mid += stats.draws + self.lit.len() as u32 - before;
                 }
+            }
+        }
+        // The meshes in a spell's light.
+        if !self.lit.is_empty() {
+            lit.prog.bind(ctx, false);
+            for &i in &self.lit {
+                let m = &self.recs[i as usize];
+                let size = [m.max[0] - m.min[0], m.max[1] - m.min[1], m.max[2] - m.min[2]];
+                let mvp = mat::with_bounds(vp, m.min, size);
+                let mut buf = core::ptr::null_mut();
+                g::sceGxmReserveVertexDefaultUniformBuffer(ctx, &mut buf);
+                if buf.is_null() {
+                    continue;
+                }
+                let bounds = [m.min[0], m.min[1], m.min[2], 0.0, size[0], size[1], size[2], 0.0];
+                g::sceGxmSetUniformDataF(buf, lit.prog.vs.param("uMvp"), 0, 16, mvp.as_ptr());
+                g::sceGxmSetUniformDataF(buf, lit.bounds, 0, 8, bounds.as_ptr());
+                g::sceGxmSetUniformDataF(buf, lit.cast, 0, 32, lit.table.as_ptr());
+                gpu::draw(ctx, self.vtx.add(m.vtx_first as usize * 16), self.idx.add(m.idx_first as usize), m.idx_count);
+                stats.draws += 1;
+                stats.tris += m.idx_count / 3;
+                stats.lit += 1;
             }
         }
         stats

@@ -1,0 +1,38 @@
+void main(
+    float4 aA,
+    float4 aB,
+    float4 aC,
+    float4 iPosAge,
+    float4 iDirA,
+    uniform float4x4 uMvp,
+    uniform float4 uP[8],
+    uniform float4 uCam[3],
+    out float4 oPosition : POSITION,
+    out float4 oColor : TEXCOORD0,
+    out float2 oUv : TEXCOORD1)
+{
+    float a = lerp(1.0, iDirA.w, uP[1].w);
+    float t = iPosAge.w;
+    float len = lerp(uP[0].x, uP[0].y, min(t / max(uP[2].x, 0.001), 1.0)) * a;
+    // Upright strips stand on the point; the others follow the direction, fanned about the vertical.
+    float3 f = lerp(iDirA.xyz, float3(0.0, 1.0, 0.0), uP[6].y);
+    float fa = aB.x * uP[1].z;
+    float fc = cos(fa);
+    float fs = sin(fa);
+    f = float3(f.x * fc + f.z * fs, f.y, f.z * fc - f.x * fs);
+    float3 r;
+    float3 u;
+    frame(f, r, u);
+    float beat = floor(uCam[0].w * uP[1].y + aB.y * 7.0);
+    float2 o = aA.zw * cos(beat * 2.4 + aA.x * 9.0 + aB.y * 20.0);
+    float pinned = sin(aA.x * 3.14159);
+    float3 world = iPosAge.xyz + float3(0.0, uP[6].x, 0.0) + f * (aA.x * len) + (r * o.x + u * o.y) * (uP[1].x * len * pinned);
+    float3 side = normalize(cross(f, world - uCam[2].xyz) + float3(0.0, 0.0001, 0.0));
+    float taper = lerp(uP[2].z, 1.0, smoothstep(0.0, 0.15, aA.x)) * lerp(uP[2].w, 1.0, smoothstep(1.0, 0.8, aA.x));
+    world += side * (aA.y * lerp(uP[0].z, uP[0].w, t) * a * taper);
+    oPosition = mul(uMvp, float4(world, 1.0));
+    float4 c = lerp(uP[3], uP[4], t);
+    c.a *= pow(max(1.0 - t, 0.0), uP[2].y);
+    oColor = c;
+    oUv = lerp(uP[5].xy, uP[5].zw, float2(aA.x, aA.y * 0.5 + 0.5));
+}
