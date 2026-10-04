@@ -9,6 +9,7 @@
 //   /?model=...            a model preview (see preview.ts)
 
 import * as THREE from "three";
+import { playTitle } from "../../vendor/pocketjs/engine/pocket3d/crates/pocket3d-title/web/pocket3d-title.js";
 import { Hud } from "./game/hud";
 import { Input } from "./game/input";
 import { buildDemon } from "./model/demon";
@@ -45,6 +46,8 @@ const chase = q.get("chase")?.split(",").map(Number);
 const atDemon = q.get("demon")?.split(",").map(Number);
 const test = Number(q.get("test") ?? 0);
 
+// The Pocket3D title card covers the page while the stage is generated. A capture run skips it.
+const title = shot ? Promise.resolve() : playTitle();
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: shot });
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.shadowMap.enabled = true;
@@ -236,6 +239,8 @@ if (shot) {
   document.title = `shot-ready ${JSON.stringify({ ...stats, calls: renderer.info.render.calls, buildMs: Math.round(buildMs), pos: [...s.subarray(SNAP.POS, SNAP.POS + 3)].map((v) => Math.round(v)), kos: s[SNAP.KOS], free: s[SNAP.FREE], crowd: crowd.shown, crowdTris: crowd.triangles, ...counts })}`;
 } else {
   for (const type of ["keydown", "pointerdown"]) window.addEventListener(type, startAudio, { once: true });
+  // the game's clock starts when the title card has ended
+  await title;
   let last = performance.now();
   let acc = 0;
   const frame = (now: number) => {

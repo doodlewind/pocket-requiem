@@ -345,7 +345,7 @@ impl Timing {
 
 fn main() {
     unsafe {
-        // Development builds take boot switches from the USB share: {"msaa": 0 | 2 | 4}.
+        // Development builds take boot switches from the USB share: {"msaa": 0 | 2 | 4, "title": false}.
         let live = cfg!(feature = "usb-debug");
         let boot: Value = if live { hostfs::read(&format!("{}/boot.json", paths::HOST), 4096).and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(Value::Null) } else { Value::Null };
         let samples = boot["msaa"].as_u64().unwrap_or(DEFAULT_MSAA);
@@ -355,6 +355,10 @@ fn main() {
             2 => Msaa::X2,
             _ => Msaa::None,
         };
+        // The Pocket3D title card plays before the renderer starts. A development build skips it with {"title": false}.
+        if !(live && boot["title"] == Value::Bool(false)) {
+            pocket3d_title::vita::play();
+        }
         if let Err(error) = graphics::init_with_pool(1024 * 1024) {
             pocketjs_vita::vita_log(format_args!("requiem: graphics {error}"));
             return;

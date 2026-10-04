@@ -17,6 +17,7 @@
 #include <3ds.h>
 #include <citro3d.h>
 #include <math.h>
+#include <pocket3d_title.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -512,6 +513,8 @@ static void read_pad(RqPad *pad) {
 int main(void) {
   gfxInitDefault();
   gfxSet3D(false);
+  /* The Pocket3D title card, on both screens, before the GPU is set up. */
+  pocket3d_title_play();
   gfxSetDoubleBuffering(GFX_BOTTOM, false);
   consoleInit(GFX_BOTTOM, NULL);
   mkdir("sdmc:/pocket-requiem", 0777);
