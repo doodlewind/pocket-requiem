@@ -308,7 +308,7 @@ function weapon(out: MeshOut, b: Body, kind: number, detail: KnightDetail) {
 }
 
 /**
- * A knight for the far ranks: boxes, each moving with one bone. `fine` gives
+ * A knight for the far ranks: prisms, each moving with one bone. `fine` gives
  * the limbs two parts each and the weapon its head; coarse is a trunk, two
  * legs and a line for the weapon, for knights a few pixels tall.
  */
@@ -319,68 +319,91 @@ export function buildKnightFar(kind: number, bind: Float32Array, fine: boolean):
   const heavy = kind === FIGURE.KNIGHT_GREAT;
   const light = kind === FIGURE.KNIGHT_HALBERD;
   const plate = heavy ? STEEL_DARK : STEEL;
-  /** A four-sided prism along a bone from `y0` to `y1`, `w` wide and `d` deep at each end; open-ended unless capped. */
-  const prism = (bone: number, y0: number, y1: number, w0: number, d0: number, w1: number, d1: number, color: Rgb, cap: boolean, x = 0, z = 0) => {
+  /**
+   * A four-sided prism along a bone from `y0` to `y1`, `w` wide and `d` deep at each end. Each corner is one
+   * vertex with its normal between the two faces that meet there, so the light rounds the column and a prism
+   * is 8 vertices. `top`: `open`; a `lid` in the prism's colour; or a `collar`, the shoulders' plate sloping
+   * in to the dark opening where the head would be.
+   */
+  const prism = (bone: number, y0: number, y1: number, w0: number, d0: number, w1: number, d1: number, color: Rgb, top: "open" | "lid" | "collar", x = 0, z = 0) => {
     const corner = (y: number, w: number, d: number): V3[] => [
       [x - w, y, z - d],
       [x + w, y, z - d],
       [x + w, y, z + d],
       [x - w, y, z + d],
     ];
-    const lo = corner(y0, w0, d0).map((p) => b.at(bone, p));
-    const hi = corner(y1, w1, d1).map((p) => b.at(bone, p));
-    const normals: V3[] = [
-      [0, 0, -1],
-      [1, 0, 0],
-      [0, 0, 1],
-      [-1, 0, 0],
+    const diagonal: V3[] = [
+      [-1, 0, -1],
+      [1, 0, -1],
+      [1, 0, 1],
+      [-1, 0, 1],
     ];
+    const lo = corner(y0, w0, d0);
+    const hi = corner(y1, w1, d1);
+    const first = out.count;
+    for (const ring of [lo, hi]) {
+      for (let k = 0; k < 4; k++) {
+        const n = b.dir(bone, diagonal[k]);
+        const len = Math.hypot(n[0], n[1], n[2]) || 1;
+        out.vertex(b.at(bone, ring[k]), [n[0] / len, n[1] / len, n[2] / len], color, bone);
+      }
+    }
+    // Seen from outside, with +Y up the bone.
     for (let k = 0; k < 4; k++) {
       const k1 = (k + 1) % 4;
-      const n = b.dir(bone, normals[k]);
-      const first = out.vertex(lo[k], n, color, bone);
-      out.vertex(lo[k1], n, color, bone);
-      out.vertex(hi[k1], n, color, bone);
-      out.vertex(hi[k], n, color, bone);
-      // Seen from outside, with +Y up the bone.
-      out.i.push(first, first + 2, first + 1, first, first + 3, first + 2);
+      out.i.push(first + k, first + 4 + k1, first + k1, first + k, first + 4 + k, first + 4 + k1);
     }
-    if (cap) {
-      const n = b.dir(bone, [0, 1, 0]);
-      const first = out.vertex(hi[0], n, VOID, bone);
-      for (let k = 1; k < 4; k++) out.vertex(hi[k], n, VOID, bone);
-      out.i.push(first, first + 2, first + 1, first, first + 3, first + 2);
+    if (top === "open") return;
+    const up = b.dir(bone, [0, 1, 0]);
+    const quad = (pts: V3[], tint: Rgb) => {
+      const at = out.count;
+      for (const p of pts) out.vertex(b.at(bone, p), up, tint, bone);
+      return at;
+    };
+    if (top === "lid") {
+      const at = quad(hi, color);
+      out.i.push(at, at + 2, at + 1, at, at + 3, at + 2);
+      return;
     }
+    const rim = corner(y1 - 0.02, w1 * 0.5, d1 * 0.55);
+    const outer = quad(hi, color);
+    const inner = quad(rim, color);
+    for (let k = 0; k < 4; k++) {
+      const k1 = (k + 1) % 4;
+      out.i.push(outer + k, inner + k1, outer + k1, outer + k, inner + k, inner + k1);
+    }
+    const hole = quad(rim, VOID);
+    out.i.push(hole, hole + 2, hole + 1, hole, hole + 3, hole + 2);
   };
   if (fine) {
-    prism(B.PELVIS, -0.14, 0.1, 0.2, 0.15, 0.15, 0.12, light ? MAIL : plate, false);
-    prism(B.SPINE, 0.0, 0.5, 0.15, 0.12, heavy ? 0.3 : 0.26, 0.15, plate, true);
+    prism(B.PELVIS, -0.14, 0.1, 0.2, 0.15, 0.15, 0.12, light ? MAIL : plate, "open");
+    prism(B.SPINE, 0.0, 0.5, 0.15, 0.12, heavy ? 0.3 : 0.26, 0.15, plate, "collar");
     for (const [u, l, f] of [
       [B.LEG_UL, B.LEG_LL, B.FOOT_L],
       [B.LEG_UR, B.LEG_LR, B.FOOT_R],
     ]) {
-      prism(u, -0.44, 0.02, 0.07, 0.075, 0.1, 0.1, light ? CLOTH : plate, false);
-      prism(l, -0.43, 0.0, 0.055, 0.06, 0.075, 0.08, plate, false);
-      prism(f, -0.07, -0.01, 0.055, 0.14, 0.055, 0.08, STEEL_DARK, true, 0, -0.06);
+      prism(u, -0.44, 0.02, 0.07, 0.075, 0.1, 0.1, light ? CLOTH : plate, "open");
+      prism(l, -0.43, 0.0, 0.055, 0.06, 0.075, 0.08, plate, "open");
+      prism(f, -0.07, -0.01, 0.055, 0.14, 0.055, 0.08, STEEL_DARK, "lid", 0, -0.06);
     }
     for (const [u, l] of [
       [B.ARM_UL, B.ARM_LL],
       [B.ARM_UR, B.ARM_LR],
     ]) {
-      prism(u, -0.3, 0.05, 0.055, 0.06, heavy ? 0.12 : 0.1, 0.1, plate, true);
-      prism(l, -0.34, 0.0, 0.05, 0.05, 0.055, 0.06, STEEL_DARK, false);
+      prism(u, -0.3, 0.05, 0.055, 0.06, heavy ? 0.12 : 0.1, 0.1, plate, "lid");
+      prism(l, -0.34, 0.0, 0.05, 0.05, 0.055, 0.06, STEEL_DARK, "open");
     }
   } else {
-    prism(B.SPINE, -0.16, 0.5, 0.18, 0.13, 0.27, 0.15, plate, true);
-    prism(B.LEG_UL, -0.86, 0.0, 0.06, 0.08, 0.1, 0.1, STEEL_DARK, false);
-    prism(B.LEG_UR, -0.86, 0.0, 0.06, 0.08, 0.1, 0.1, STEEL_DARK, false);
-    prism(B.ARM_UL, -0.6, 0.04, 0.05, 0.05, 0.09, 0.09, STEEL_DARK, false);
-    prism(B.ARM_UR, -0.6, 0.04, 0.05, 0.05, 0.09, 0.09, STEEL_DARK, false);
+    prism(B.SPINE, -0.16, 0.5, 0.18, 0.13, 0.27, 0.15, plate, "collar");
+    prism(B.LEG_UL, -0.86, 0.0, 0.06, 0.08, 0.1, 0.1, STEEL_DARK, "open");
+    prism(B.LEG_UR, -0.86, 0.0, 0.06, 0.08, 0.1, 0.1, STEEL_DARK, "open");
+    prism(B.ARM_UL, -0.6, 0.04, 0.05, 0.05, 0.09, 0.09, STEEL_DARK, "lid");
+    prism(B.ARM_UR, -0.6, 0.04, 0.05, 0.05, 0.09, 0.09, STEEL_DARK, "lid");
   }
   // The weapon: a pale sliver, wider than life so it survives the distance.
   const reach = kind === FIGURE.KNIGHT_HALBERD ? [-0.9, 1.45] : heavy ? [-0.2, 1.5] : [-0.12, 1.02];
   const w = fine ? 0.022 : 0.03;
-  prism(B.PROP, reach[0], reach[1], w, w, w * 0.6, w * 0.6, EDGE, false);
-  if (fine && kind === FIGURE.KNIGHT_HALBERD) prism(B.PROP, 0.95, 1.25, 0.012, 0.012, 0.012, 0.012, EDGE, false, 0.12);
+  prism(B.PROP, reach[0], reach[1], w, w, w * 0.6, w * 0.6, EDGE, "open");
+  if (fine && kind === FIGURE.KNIGHT_HALBERD) prism(B.PROP, 0.95, 1.25, 0.012, 0.012, 0.012, 0.012, EDGE, "open", 0.12);
   return out.model();
 }

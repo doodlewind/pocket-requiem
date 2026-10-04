@@ -69,8 +69,8 @@ pub struct Clip {
     pub far: f32,
 }
 /// The army: which exported levels of detail the pack carries, nearest first, the distance at which each hands
-/// over to the next (the last is where a knight is no longer drawn), the triangles of knights a frame may draw,
-/// and the most knights it draws.
+/// over to the next (the last is where meshes end and far figures begin), the triangles of knights a frame
+/// may draw, and the most knights it draws as meshes.
 #[derive(Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct Crowd {
@@ -78,6 +78,8 @@ pub struct Crowd {
     pub reach: Vec<f32>,
     pub budget: u32,
     pub max: u32,
+    /// The most knights out of formation at once: what the machine's processor simulates in a frame.
+    pub free: u32,
 }
 /// Source model ids.
 #[derive(Deserialize, Clone)]
@@ -754,7 +756,7 @@ pub fn scene(scene: &serde_json::Value, h: &Handheld, screen: [u32; 2], pages: u
         fog_near: h.fog.near,
         fog_far: h.fog.far,
         moon_radius: num(&scene["moonRadius"], "moonRadius")?,
-        spare: 0.0,
+        crowd_free: h.crowd.free as f32,
         u_range: U_RANGE,
         color_scale: pack::COLOR_SCALE,
         screen: [screen[0] as f32, screen[1] as f32],

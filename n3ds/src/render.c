@@ -29,9 +29,10 @@
 
 #define HUD_QUADS 320
 /* The shared quad indices: the interface, the stars, the far figures, a cohort's ranks. */
-#define QUADS 512
-#define FX_VERTS 3072
-#define FX_INDICES 6144
+#define QUADS 1024
+/* Effect vertices and indices a frame may hold: past them the farthest effects are left out. */
+#define FX_VERTS 2304
+#define FX_INDICES 4608
 #define SKY_RADIUS 1000.0f
 /* requiem_pack: metres per position unit of a static vertex. */
 #define PICA_STEP (1.0f / 24.0f)

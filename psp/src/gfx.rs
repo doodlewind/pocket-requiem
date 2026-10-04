@@ -349,7 +349,7 @@ impl Gfx {
         }
         let list = CrowdList::new(&scene.h, tris, true);
         let mut ranks_vb = alloc::vec![0u8; Ranks::bytes(sim)];
-        let ranks = Ranks::new(sim, ranks_vb.as_mut_ptr());
+        let ranks = Ranks::new(sim, ranks_vb.as_mut_ptr(), list.tones);
 
         progress("interface");
         let font_bytes: Vec<u8> = file.records(pack::FONT)?;

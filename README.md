@@ -8,9 +8,9 @@ This repository is private, and the game is not for distribution.
 
 | | Screen | Renderer | Measured |
 | --- | --- | --- | --- |
-| PS Vita | 960 × 544, 4× MSAA, bloom, moon shafts, graded composite | GXM, programs compiled on the device | 90 s of the autopilot's fight: 2 700 frames, **0 late**, **218 to 1 734 knights in view** (mean 1 080), up to 342 000 triangles |
-| PSP | 480 × 272, 16-bit colour | GE, fixed function | 2 700 frames, **0 late**, **163 to 1 553 knights in view** (mean 1 005), up to 31 000 triangles |
-| Nintendo 3DS (Old) | 400 × 240, the field from above on the lower screen | PICA200, vertex programs | 2 743 frames, 8 late (the measurement's own), **279 to 1 674 knights in view** (mean 1 055), up to 82 000 triangles |
+| PS Vita | 960 × 544, 4× MSAA, bloom, moon shafts, graded composite | GXM, programs compiled on the device | 90 s of the autopilot's fight: 2 700 frames, **0 late**, **296 to 1 750 knights in view** (mean 1 147), up to 328 000 triangles |
+| PSP | 480 × 272, 16-bit colour | GE, fixed function | 2 700 frames, **0 late**, **40 to 1 560 knights in view** (mean 986), up to 37 000 triangles |
+| Nintendo 3DS (Old) | 400 × 240, the field from above on the lower screen | PICA200, vertex programs | 2 740 frames, **0 late**, **70 to 1 705 knights in view** (mean 1 018), up to 80 000 triangles |
 
 The repository holds the whole path from authoring to hardware:
 
@@ -47,7 +47,7 @@ It is night. The moon is low in the north, ahead of the mage, drawn large; the s
 - **Moves are data** (`moves.rs`): a length in ticks, the tick each strike lands and its shape (a sector, a lane, a disc), its damage, push and lift, the ticks it freezes the frame, the first tick a buffered input may cancel it, and the move a light or a heavy input leads to. A press waits up to 16 ticks for a move to accept it.
 - **The freeze.** A strike that lands holds the mage and every knight it struck for 3 to 16 ticks; a struck knight keeps its frame and shivers, then flies. The rest of the field moves on. Inputs pressed during the hold are kept.
 - **The spells.** △ alone: a beam, a lane 30 m long. After one to four strikes: a rising burst that lifts what stands around her, lightning in a fan, fire as a burst ahead, and a volley of ten homing bolts. ✕ evades; L raises the barrier; R hovers at 15 m/s.
-- **The army** takes turns: three knights at most wind up or strike at once; the rest stand off in a loose ring. A blow costs her 6 to 11 of 1 000 and staggers her when she is not in a move of her own; a knight falls to two strikes of the staff. A struck knight staggers, is driven back, or leaves the ground; one whose binding is undone falls where it stands, and what leaves it rises as a pale flame.
+- **The army** takes turns: three knights at most wind up or strike at once; the rest stand off in a loose ring. At most **360 knights are out of formation at once** (`Crowd::free_cap`; a host sets it lower): a cohort that would pass it holds its ranks at the edge of the fight until knights fall. A knight out of formation is what a tick costs, so the cap bounds the tick when the mage stands still and the whole army closes in. A blow costs her 6 to 11 of 1 000 and staggers her when she is not in a move of her own; a knight falls to two strikes of the staff. A struck knight staggers, is driven back, or leaves the ground; one whose binding is undone falls where it stands, and what leaves it rises as a pale flame.
 - **The autopilot** plays through the same inputs as a person. It is the attract mode and the repeatable load for measurements.
 
 Transcendentals go through `libm`, so wasm, the host and the Vita compute the same values; `cargo test` runs the autopilot twice and compares.
@@ -85,9 +85,9 @@ generators (TypeScript)  →  StageIR  →  requiem-cook --profile vita30   → 
 5. **lower-effects**: templates as 12 signed bytes per vertex.
 6. **atlas-mips**, **interface-font**, **structural-budgets**.
 
-The Vita pack is 60.2 MB.
+The Vita pack is 59.6 MB.
 
-The StageIR keeps the ground apart from what stands on it (three ground layers, three prop layers), so a profile decides what the ground becomes. The Vita's lowering merges a cell's ground with its props. The handhelds' lowering (`handheld.rs`) stores **no ground mesh**: the heights are the simulation's grid, which the game holds in memory for its own use, and the baked colours are a second grid of 513 × 513 16-bit entries (`GRND`, 0.5 MB in place of 860 000 triangles). The device builds the patches it draws. The same lowering cuts the mage into draws of the bones one draw can hold (4 on the GE, 19 uniform sets on the PICA), stores the army's frames in the layout each GPU blends, and converts the atlases. The PSP pack is **13.8 MB**, the 3DS pack **18.6 MB**.
+The StageIR keeps the ground apart from what stands on it (three ground layers, three prop layers), so a profile decides what the ground becomes. The Vita's lowering merges a cell's ground with its props. The handhelds' lowering (`handheld.rs`) stores **no ground mesh**: the heights are the simulation's grid, which the game holds in memory for its own use, and the baked colours are a second grid of 513 × 513 16-bit entries (`GRND`, 0.5 MB in place of 860 000 triangles). The device builds the patches it draws. The same lowering cuts the mage into draws of the bones one draw can hold (4 on the GE, 19 uniform sets on the PICA), stores the army's frames in the layout each GPU blends, and converts the atlases. The PSP pack is **13.1 MB**, the 3DS pack **18.8 MB**.
 
 ## On the PS Vita
 
@@ -102,9 +102,9 @@ Measured on a PS Vita (PCH-2000, CPU 444 MHz, GPU 222 MHz), development build in
 
 | Window | Frames | Late frames | Average frame | Worst frame | Knights in view | Most triangles | Most draws |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 90 s | 2 700 | 0 | 33.37 ms | 33.47 ms | 218 – 1 734, mean 1 080 | 341 647 | 306 |
+| 90 s | 2 700 | 0 | 33.37 ms | 33.47 ms | 296 – 1 750, mean 1 147 | 328 066 | 291 |
 
-CPU time per frame: simulation (two ticks) 1.4 ms, the army's draw list and its instanced draws 2.7 ms, all drawing 3.9 ms. GPU time during the fight: 24 to 27 ms of the 33.3.
+CPU time per frame: simulation (two ticks) 1.6 ms, the army's draw list and its instanced draws 2.9 ms, all drawing 4.1 ms. GPU time during the fight: 24 to 27 ms of the 33.3.
 
 From a fixed view over the army, at one refresh per frame: sky and post chain 6.8 ms; the field 2.4 ms; the mage 3.3 ms at 62 700 triangles (she is 42 700 now); 700 knights 13.5 to 15.7 ms in all.
 
@@ -114,23 +114,26 @@ Both run the same pack sections through `crates/requiem-handheld`; a device crat
 
 - **The ground is two grids.** A frame walks the 256 m cells: a far one is a patch of 8 × 8 squares, a near one draws its 64 m cells at 16 × 16 squares inside the near distance and 8 × 8 outside. A patch's vertices are written once into a slot (28 near slots, 112 small ones) and stay until a patch that is needed takes the slot of one that no frame has drawn for three frames. Every patch of one size shares one index list.
 - **The army has a third rank.** Meshes reach 70 m. Beyond that a cohort still in formation is **one mesh of two quads per knight** (a body that widens to the shoulders, the weapon upright), written where the cohort stands, facing the eye, and drawn with the cohort's march since then as the draw's translation; it is written again after 1.5 m of march, a turn, a lost knight, or 17° of the eye's bearing. A thousand knights are a few dozen draws, and a frame rewrites four cohorts at most.
-- **The triangle budget is spent from the eye outward** (`crowd.rs`): every knight in view starts at the coarsest mesh, half of what is left buys the finest level for the front rank, and the rest buys one level at a time, nearest first.
+- **The triangle budget is spent from the eye outward** (`crowd.rs`): the knights are ordered by distance in half-metre steps (inside a step they keep the simulation's order, so two knights a hand apart do not trade levels from frame to frame); as many of the nearest as half the budget pays for at the coarsest mesh are meshes, and **the others are drawn as far figures, not left out**; a quarter of what is left buys the finest level for the front rank, and the rest buys one level at a time, nearest first.
+- **Knights out of formation are capped per machine** (`crowd.free` in the profile: 240 on the PSP, 200 on the 3DS). With the mage standing still, the uncapped army put 700 knights round her and the 3DS's tick took 60 ms.
 - **The effects are evaluated on the CPU** (`fx.rs`): the Vita's four vertex programs as loops, with what an instance's vertices share computed once and what a particle's corners share once per particle. A device draws two batches: the layers that cover, then the layers that add light. An effect beyond 30 m draws every second particle, beyond 70 m every fourth, and a full buffer leaves out the farthest.
 
 **PSP** (`psp/`, GE fixed function). A knight is one draw of **two morph targets**: the pack stores each frame of the army next to the frame after it (`CRWP`), and the GE blends the pair by the knight's weight; the moon and the sky are baked into each frame's colours. A light a spell casts is a GE point light whose ambient term carries its colour, so knights, ground and props brighten round it without normals. A struck knight's flash is the haze set to a constant share of white for that draw. The ground's squares within 21 m of the eye are tested against the GE's guard band and cut on the CPU. What the CPU computes each frame is written to ordinary memory and flushed, not to the display list's own memory: that is addressed past the data cache, and the interface alone cost 2.6 ms there.
 
-**3DS** (`n3ds/`, C over citro3d, the shared crate behind a C interface). A knight is one draw of two stored frames bound as two buffers and blended by `crowd.v.pica`; the Vita's `CRWD` section is used as it is. The spells' two strongest lights enter the army's, the figures' and (when one is lit) the ground's vertex programs. The lower screen shows the field from above with the cohorts still in formation.
+**3DS** (`n3ds/`, C over citro3d, the shared crate behind a C interface). A knight is one draw of two stored frames bound as two buffers and blended by `crowd.v.pica`; the Vita's `CRWD` section is used as it is. Its levels are 2 060, 704 and **442 triangles** (the coarsest cell at which a knight still has two legs and two arms, exported for the handhelds), then the 122-triangle figure of prisms from 44 m: in a press of knights the nearest ninety are smooth meshes. The spells' two strongest lights enter the army's, the figures' and (when one is lit) the ground's vertex programs. The lower screen shows the field from above with the cohorts still in formation.
 
 Measured with the autopilot fighting for 90 s (`bun tools/psp.ts bench`, `bun tools/n3ds.ts bench`):
 
 | Device | Frames | Late | Average | Worst | Knights in view | As meshes | Most triangles | Most draws | CPU: simulation, frame build |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| PSP (333 MHz, over PSPLINK) | 2 700 | 0 | 33.37 ms | 33.43 ms | 163 – 1 553, mean 1 005 | mean 85, most 105 | 31 158 | 194 | 6.6 ms, 9.6 ms |
-| Old 3DS (over the dev wire) | 2 743 | 8 | 33.48 ms | 52.6 ms | 279 – 1 674, mean 1 055 | mean 100, most 198 | 82 331 | 285 | 8.6 ms, 7.3 ms |
+| PSP (333 MHz, over PSPLINK) | 2 700 | 0 | 33.37 ms | 34.18 ms | 40 – 1 560, mean 986 | mean 76, most 84 | 37 076 | 202 | 7.0 ms, 9.7 ms |
+| Old 3DS (over the dev wire) | 2 740 | 0 | 33.44 ms | 48.9 ms | 70 – 1 705, mean 1 018 | mean 89, most 120 | 80 255 | 241 | 8.3 ms, 6.7 ms |
 
-The 3DS bench asks the console for its status 18 times, and an answer costs it about one frame; its worst frame is one of those.
+The 3DS bench asks the console for its status 18 times, and an answer costs it about one frame; its worst frame is one of those. The 3DS row is build `7d2cc0b037a7`; the prism figure's new shape and the far figures' darker tone came after it and have not been measured there.
 
-The PSP's GE is the limit: at 37 000 triangles it finished 13 of 2 700 frames late, at 31 000 none, so the profile's distances and the knights' budget (10 500 triangles of meshes) are set there. The PSP uses 17.4 MB after loading. Its CPU needed the simulation 2.8 times faster than it was (18.5 ms a frame to 6.6 ms): knights on their feet step every other tick (every machine shows a frame per two ticks), the neighbour grid is 1 024 cells of 16 bits (the 4 096-cell tables were twice the PSP's data cache, walked every tick), and the synthesizer reads sines and decays from tables. Those changes are in `requiem-sim`, so the Vita's simulation went from 2.4 ms to 1.4 ms a frame.
+With the mage standing still for a minute and the army closed round her (`bun tools/n3ds.ts look --lead 14 --ctl auto=0`, and the same by hand on the PSP): the 3DS holds 33.0 to 33.2 ms with 120 meshes, 260 far figures beside them and the simulation at 7.6 to 13.7 ms; the PSP holds 33.4 ms with 84 meshes and the simulation at 8.2 to 11.0 ms.
+
+The PSP's GE is the limit: with 12 000 triangles of knights' meshes and longer distances it finished 13 of 2 700 frames late, so the profile's distances and the knights' budget (10 500 triangles of meshes) are set below that; far figures are untextured and unlit and cost it little. The PSP uses 17.4 MB after loading. Its CPU needed the simulation 2.8 times faster than it was (18.5 ms a frame to 6.6 ms): knights on their feet step every other tick (every machine shows a frame per two ticks), the neighbour grid is 1 024 cells of 16 bits (the 4 096-cell tables were twice the PSP's data cache, walked every tick), and the synthesizer reads sines and decays from tables. Those changes are in `requiem-sim`, so the Vita's simulation went from 2.4 ms to 1.4 ms a frame.
 
 ## Controls
 
@@ -175,9 +178,11 @@ bun tools/psp.ts package               # dist/psp/PSP/GAME/PocketRequiem for a M
 # Nintendo 3DS (.3dsx over the paired LAN wire)
 bun tools/requiem.ts cook --profile n3ds30
 bun tools/n3ds.ts install              # build in the devkitARM container, send, start
-bun tools/n3ds.ts status | capture --out f.png | bench --seconds 90 | ctl "auto=1"
+bun tools/n3ds.ts status | capture --out f.png | bench --seconds 90 [--install] | ctl "auto=1"
+bun tools/n3ds.ts look --install --lead 14 --ctl "auto=0" --frames 5 --every 11   # one lease: install, run, steer, capture
 
 cargo run --release -p requiem-handheld --example probe -- .pocket-build/stage/the-field.psp30.pack 90
+cargo run --release -p requiem-handheld --example siege -- .pocket-build/stage/the-field.n3ds30.pack 120   # she stands still
 
 cargo test --workspace
 cargo run --release -p requiem-sim --bin harness -- .pocket-build/stage/ir/stage.rqsw 120
@@ -208,7 +213,7 @@ Vita `ctl` keys: `auto`, `reset`, `view {pos, target, fov}`, `pace` (refreshes p
 
 ## Not done
 
-- **PSP and 3DS, by eye.** Both are measured and captured; nobody has played either. On the PSP most knights within 34 m are the 114-triangle figure of prisms, and five to eight are the 704-triangle mesh: the GE has no room for more. The PSP's mage is 6 158 triangles and the 3DS's 8 484 (42 694 on the Vita). Neither has post-processing; a heavy strike's freeze whitens the frame through the interface.
+- **PSP and 3DS, by eye.** Both are measured and captured; nobody has played either. On the PSP most knights within 34 m are the 122-triangle figure of prisms (corners shared so the light rounds them, a collar where the head would be), and two to nine are the 704-triangle mesh: the GE has no room for more. The PSP's mage is 6 158 triangles and the 3DS's 8 484 (42 694 on the Vita). Neither has post-processing; a heavy strike's freeze whitens the frame through the interface.
 - The 3DS plays sound through CSND (no DSP firmware dump on the test console); the PSP at 11 kHz. Neither has been heard.
 - The PSP has been run from PSPLINK only, on a console with 56 MB free; `bun tools/psp.ts package` writes the Memory Stick layout, and the 17.4 MB it uses fits a 24 MB PSP-1000 on paper.
 - **No ending.** The demon stands on her rise with the scales raised (`demon.rs`, `web/src/model/demon.ts`) and kneels when 1 000 knights are undone; the stage shows a line of text and nothing else.

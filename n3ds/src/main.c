@@ -660,8 +660,9 @@ int main(void) {
       late++;
     if (ticks < 1)
       ticks = 1;
-    if (ticks > 4)
-      ticks = 4;
+    /* At most one tick of catching up: a slow frame slows the game, it does not ask the next frame for more. */
+    if (ticks > PACE + 1)
+      ticks = PACE + 1;
     avg += (frame_ms - avg) * 0.05f;
     worst = frame_no % 120 == 0 ? frame_ms : fmaxf(worst, frame_ms);
     perf = (RqPerf){.frame = avg, .worst = worst, .late = late, .frames = frame_no, .sim = sim_ms, .build = perf.build, .draw = 0, .gpu = gpu_ms, .draws = render_stats.draws, .tris = render_stats.tris};

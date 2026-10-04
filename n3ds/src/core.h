@@ -21,7 +21,7 @@
 #define RQ_DISC_VERTS (RQ_DISCS * (RQ_FAN + 1))
 #define RQ_DISC_INDICES (RQ_DISCS * RQ_FAN * 3)
 #define RQ_FAR_VERTS 8
-#define RQ_FAR_FIGURES 192
+#define RQ_FAR_FIGURES 448
 #define RQ_RANK_VERTS 8
 #define RQ_GROUND_NEAR_INDICES 1920
 #define RQ_GROUND_SMALL_INDICES 576
@@ -49,7 +49,7 @@ typedef struct {
   float horizon[3], clip_far;
   float zenith[3], cell;
   float glow[3], super_cell;
-  float fog_near, fog_far, moon_radius, spare;
+  float fog_near, fog_far, moon_radius, crowd_free;
   float u_range, color_scale, screen[2];
   uint32_t pages, near_streamed, crowd_lods, crowd_budget;
   float moon[3];

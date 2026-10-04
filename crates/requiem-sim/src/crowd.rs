@@ -53,6 +53,8 @@ const CELL: f32 = 1.6;
 const HASH: usize = 1024;
 const BODY: f32 = 0.52;
 pub const CAPTAIN_SCALE: f32 = 1.2;
+/// Knights out of formation at once, unless a host sets `Crowd::free_cap`.
+pub const FREE_CAP: usize = 360;
 
 pub struct Cohort {
     pub x: f32,
@@ -66,6 +68,14 @@ pub struct Cohort {
     pub phase: f32,
     pub radius: f32,
     pub marching: bool,
+}
+
+/// A knight in the neighbour grid: where it stood when the tick began, and its number with the captain's bit on top.
+#[derive(Clone, Copy)]
+struct Near {
+    x: f32,
+    z: f32,
+    id: u32,
 }
 
 /// A knight far from the eye: where it stands and what it is.
@@ -123,6 +133,9 @@ pub struct Crowd {
     pub prof: [u32; 2],
     /// Ground each kind of knight covers in one cycle of its walk and of its run.
     strides: [[f32; 2]; 3],
+    /// The most knights out of formation at once. A cohort that would pass it holds its ranks at the edge
+    /// of the fight. A host with a slower processor sets it lower: a knight out of formation is what a tick costs.
+    pub free_cap: usize,
     pub n: usize,
     pub x: Vec<f32>,
     pub z: Vec<f32>,
@@ -152,7 +165,9 @@ pub struct Crowd {
     /// Knights out of formation and not yet gone.
     pub free: Vec<u32>,
     cell_start: Vec<u16>,
-    cell_items: Vec<u32>,
+    /// The knights of each cell, side by side: a knight's neighbours are read from here, not from the
+    /// knights' own arrays, where each would be a cache line of its own.
+    cell_items: Vec<Near>,
     cell_fill: Vec<u16>,
     cell_of: Vec<u16>,
     attackers: u32,
@@ -185,6 +200,7 @@ impl Crowd {
             strides: [0u32, 1, 2].map(|k| [knight::stride_of(k + 1, false), knight::stride_of(k + 1, true)]),
             clock: None,
             prof: [0; 2],
+            free_cap: FREE_CAP,
             n,
             x: vec![0.0; n],
             z: vec![0.0; n],
@@ -314,11 +330,17 @@ impl Crowd {
             if self.cohorts[ci].formed == 0 {
                 continue;
             }
+            let room = self.free.len() + self.cohorts[ci].formed as usize <= self.free_cap;
             let c = &mut self.cohorts[ci];
             let (dx, dz) = (target.x - c.x, target.z - c.z);
             let d = sqrt(dx * dx + dz * dz);
             if d < ENGAGE + c.radius * 0.5 {
-                self.release(ci, field, tick);
+                if room {
+                    self.release(ci, field, tick);
+                } else {
+                    // The fight is full: the cohort holds its ranks where it stands until knights fall.
+                    c.marching = false;
+                }
                 continue;
             }
             c.marching = d < 260.0;
@@ -351,12 +373,12 @@ impl Crowd {
             self.cell_start[k + 1] += self.cell_start[k];
         }
         self.cell_items.clear();
-        self.cell_items.resize(self.cell_start[HASH] as usize, 0);
+        self.cell_items.resize(self.cell_start[HASH] as usize, Near { x: 0.0, z: 0.0, id: 0 });
         self.cell_fill.copy_from_slice(&self.cell_start[..HASH]);
         for &i in &self.free {
             if self.state[i as usize] <= state::KNOCK {
                 let k = self.cell_of[i as usize] as usize;
-                self.cell_items[self.cell_fill[k] as usize] = i;
+                self.cell_items[self.cell_fill[k] as usize] = Near { x: self.x[i as usize], z: self.z[i as usize], id: i | (self.big[i as usize] as u32) << 31 };
                 self.cell_fill[k] += 1;
             }
         }
@@ -430,25 +452,30 @@ impl Crowd {
                     let (mut mx, mut mz) = (dx / d * speed * dt, dz / d * speed * dt);
                     // Keep off the neighbours: the eight cells around and its own.
                     let (px, pz) = (self.x[i], self.z[i]);
+                    let big = self.big[i] != 0;
+                    // For a gap between two bodies: its square, 1 / 4 gap², 1 / 2 gap.
+                    let gaps = |gap: f32| (gap * gap, 0.25 / (gap * gap), 0.5 / gap);
+                    let (narrow, wide) = (gaps(BODY * 2.0), gaps(BODY * 2.5));
                     let (cx, cz) = (floor(px / CELL) as i32, floor(pz / CELL) as i32);
                     let mut pushed = 0.0f32;
                     for oz in -1..=1 {
                         for ox in -1..=1 {
                             let k = (((cx + ox) & 31) | (((cz + oz) & 31) << 5)) as usize;
-                            for &j in &self.cell_items[self.cell_start[k] as usize..self.cell_start[k + 1] as usize] {
-                                let j = j as usize;
-                                if j == i {
+                            for o in &self.cell_items[self.cell_start[k] as usize..self.cell_start[k + 1] as usize] {
+                                if (o.id & 0x7fff_ffff) as usize == i {
                                     continue;
                                 }
-                                let (ex, ez) = (px - self.x[j], pz - self.z[j]);
+                                // Where the neighbour stood when the tick began.
+                                let (ex, ez) = (px - o.x, pz - o.z);
                                 let e2 = ex * ex + ez * ez;
-                                let gap = BODY * 2.0 * if self.big[i] | self.big[j] != 0 { 1.25 } else { 1.0 };
-                                if e2 < gap * gap && e2 > 1e-6 {
-                                    let e = sqrt(e2);
-                                    let k = (gap - e) / e * 0.5;
-                                    mx += ex * k;
-                                    mz += ez * k;
-                                    pushed += gap - e;
+                                let (g2, k4, k2) = if big || o.id >> 31 != 0 { wide } else { narrow };
+                                if e2 < g2 && e2 > 1e-6 {
+                                    // Half the overlap, apart: (gap² - e²) / 4 gap² is (gap - e) / 2 e where they
+                                    // touch, with no root and no division for each neighbour in a press.
+                                    let over = g2 - e2;
+                                    mx += ex * over * k4;
+                                    mz += ez * over * k4;
+                                    pushed += over * k2;
                                 }
                             }
                         }

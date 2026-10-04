@@ -46,7 +46,9 @@ const HAND: { cells: [number, number]; detail: number }[] = [
   { cells: [0.042, 0.022], detail: 0.5 },
   { cells: [0.05, 0.026], detail: 0.34 },
 ];
-const KNIGHT_LODS: (KnightDetail | "boxes" | "block")[] = [{ cell: 0.031, trims: true }, { cell: 0.058, inflate: 0.006 }, { cell: 0.11, inflate: 0.022 }, "boxes", "block"];
+// Levels 0 to 4 are the Vita's ladder. Level 5 is for the handhelds: the coarsest cell at which a knight still
+// has two legs and two arms, for the ranks a few metres out where the figure of boxes shows its corners.
+const KNIGHT_LODS: (KnightDetail | "boxes" | "block")[] = [{ cell: 0.031, trims: true }, { cell: 0.058, inflate: 0.006 }, { cell: 0.11, inflate: 0.022 }, "boxes", "block", { cell: 0.15, inflate: 0.03 }];
 
 function meshBytes(header: number[], entries: { head: number[]; geo: Geo }[]): Uint8Array {
   let size = header.length * 4;

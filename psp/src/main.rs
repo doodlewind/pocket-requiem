@@ -217,9 +217,10 @@ unsafe fn run() -> Result<(), &'static str> {
         sceGuSwapBuffers();
         drawing ^= 1;
         let vcount = sceDisplayGetVcount();
-        // One tick per display refresh: a late frame catches up.
+        // One tick per display refresh: a late frame catches up, by one tick at most. A slow frame then
+        // slows the game; it does not ask the next frame for more.
         let refreshes = vcount.wrapping_sub(last_vcount);
-        ticks = refreshes.clamp(1, 4);
+        ticks = refreshes.clamp(1, pace + 1);
         last_vcount = vcount;
         let now = sceKernelGetSystemTimeLow();
         timing.push(now.wrapping_sub(last_swap) as f32 / 1000.0, refreshes > pace);

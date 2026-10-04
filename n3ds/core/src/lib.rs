@@ -219,7 +219,7 @@ pub unsafe extern "C" fn rq_memory(ground_mem: *mut u8, ranks_mem: *mut u8) -> *
         Ok(g) => Some(g),
         Err(_) => return fail("the ground's grid does not match the simulation's\0"),
     };
-    a.ranks = Some(Ranks::new(&a.game.sim, ranks_mem));
+    a.ranks = Some(Ranks::new(&a.game.sim, ranks_mem, a.list.tones));
     core::ptr::null()
 }
 

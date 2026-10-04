@@ -207,9 +207,10 @@ pub struct HandScene {
     /// Linear haze for fixed-function devices: none at `fog_near`, full at `fog_far`.
     pub fog_near: f32,
     pub fog_far: f32,
-    /// The moon's disc: its angular radius in radians, and a spare.
+    /// The moon's disc: its angular radius in radians.
     pub moon_radius: f32,
-    pub spare: f32,
+    /// The most knights out of formation at once on this machine (a whole number).
+    pub crowd_free: f32,
     /// Stored `u` covers `0..u_range` texture repeats.
     pub u_range: f32,
     pub color_scale: f32,

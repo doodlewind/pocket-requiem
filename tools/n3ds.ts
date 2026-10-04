@@ -8,7 +8,9 @@
 //   bun tools/n3ds.ts status
 //   bun tools/n3ds.ts ctl "auto=1 stats=1"      # Game::control words
 //   bun tools/n3ds.ts capture [--out f.png] [--surface top|auxiliary]
-//   bun tools/n3ds.ts bench [--seconds 60]      # autopilot frame timings → .pocket-build/validation/3ds/
+//   bun tools/n3ds.ts bench [--seconds 60] [--install]   # autopilot frame timings → .pocket-build/validation/3ds/
+//   bun tools/n3ds.ts look [--install] [--lead 14] [--ctl "auto=0"] [--frames 4] [--every 8] [--out DIR]
+//                                               # one lease: install, run, steer, capture frames with their status
 //
 // `--host ADDRESS` (default 192.168.8.159, or POCKET_3DS_HOST). The console
 // must run a Pocket Runtime build with the paired wire: this program itself
@@ -136,8 +138,27 @@ async function session<T>(f: (c: Client) => Promise<T>): Promise<T> {
   throw last;
 }
 
-async function device<T>(f: () => Promise<T>): Promise<T> {
+/** Runs `f` holding the console's lease. A child process started with `lease.environment` shares it. */
+async function device<T>(f: (lease: { environment: NodeJS.ProcessEnv }) => Promise<T>): Promise<T> {
   return await withDeviceLease("3ds:wire", f);
+}
+
+/** Sends the .3dsx and waits until the console reports this build, inside one lease. */
+async function install(lease: { environment: NodeJS.ProcessEnv }, receipt: { buildId: string }) {
+  await $`bun ${join(POCKETJS, "tools/3ds-dev.ts")} install --host ${host} --file ${ARTIFACT} --name ${NAME}`.cwd(POCKETJS).env(lease.environment as Record<string, string>);
+  const end = Date.now() + 120_000;
+  let last: any;
+  while (Date.now() < end) {
+    await Bun.sleep(1500);
+    try {
+      last = await session((c) => status(c));
+      if (last.build === receipt.buildId && (last.stage === "running" || last.phase === "load-error")) break;
+    } catch (e) {
+      last = { error: String(e) };
+    }
+  }
+  if (last?.build !== receipt.buildId) throw new Error(`the console did not come up with this build: ${JSON.stringify(last)}`);
+  return last;
 }
 
 switch (cmd) {
@@ -146,21 +167,39 @@ switch (cmd) {
     break;
   case "install": {
     const receipt = argv.includes("--no-build") ? JSON.parse(readFileSync(join(RECEIPTS, "build.json"), "utf8")) : await build();
-    await $`bun ${join(POCKETJS, "tools/3ds-dev.ts")} install --host ${host} --file ${ARTIFACT} --name ${NAME}`.cwd(POCKETJS);
-    await device(async () => {
-      const end = Date.now() + 120_000;
-      let last: any;
-      while (Date.now() < end) {
-        await Bun.sleep(1500);
-        try {
-          last = await session((c) => status(c));
-          if (last.build === receipt.buildId && (last.stage === "running" || last.phase === "load-error")) break;
-        } catch (e) {
-          last = { error: String(e) };
-        }
+    // One lease for the transfer and the wait: another checkout's tool cannot put its own program in between.
+    await device(async (lease) => console.log(JSON.stringify(await install(lease, receipt), null, 1)));
+    break;
+  }
+  case "look": {
+    // One lease from start to end: install (with --install), let the autopilot run for --lead seconds, send
+    // --ctl, then capture --frames upper screens --every seconds, each with the status beside it.
+    const receipt = argv.includes("--no-build") || !argv.includes("--install") ? JSON.parse(readFileSync(join(RECEIPTS, "build.json"), "utf8")) : await build();
+    const out = resolve(opt("--out", join(RECEIPTS, `look-${Date.now()}`)));
+    mkdirSync(out, { recursive: true });
+    await device(async (lease) => {
+      if (argv.includes("--install")) await install(lease, receipt);
+      await session((c) => status(c, "auto=1 reset=1 view=off"));
+      await Bun.sleep(Number(opt("--lead", "0")) * 1000);
+      const ctl = opt("--ctl", "");
+      if (ctl) await session((c) => status(c, ctl));
+      const rows: any[] = [];
+      for (let i = 1; i <= Number(opt("--frames", "4")); i++) {
+        await Bun.sleep(Number(opt("--every", "8")) * 1000);
+        const { shot, s } = await session(async (c) => {
+          const pending = c.waitForScreenshot();
+          await c.sendCtrl({ t: "screenshot", surface: "top" });
+          const shot = await pending;
+          return { shot, s: await status(c) };
+        });
+        if (s.build !== receipt.buildId) throw new Error(`the console runs build ${s.build}, not ${receipt.buildId}`);
+        await Bun.write(join(out, `s${i}.png`), shot.png);
+        const row = { frames: s.frames, late: s.late, frameMs: s.frameMs, gpuMs: s.gpuMs, cpuMs: s.cpuMs, tris: s.tris, draws: s.draws, crowd: s.crowd, fx: s.fx, lodScale: s.settings?.lodScale, hp: s.player.hp, kos: s.player.kos };
+        rows.push(row);
+        console.log(JSON.stringify(row));
       }
-      console.log(JSON.stringify(last, null, 1));
-      if (last?.build !== receipt.buildId) throw new Error("the console did not come up with this build");
+      writeFileSync(join(out, "status.json"), JSON.stringify({ build: receipt.buildId, rows }, null, 1));
+      console.log(out);
     });
     break;
   }
@@ -184,10 +223,12 @@ switch (cmd) {
     });
     break;
   case "bench":
-    await device(async () => {
+    await device(async (lease) => {
       const seconds = Number(opt("--seconds", "60"));
       const extra = opt("--ctl", "");
       const build = JSON.parse(readFileSync(join(RECEIPTS, "build.json"), "utf8"));
+      // With --install the transfer and the measurement share the lease.
+      if (argv.includes("--install")) await install(lease, build);
       await session(async (c) => {
         const first = await status(c, `auto=1 reset=1 view=off ${extra}`);
         if (first.build !== build.buildId) throw new Error(`the console runs build ${first.build}, not ${build.buildId}`);
@@ -232,6 +273,6 @@ switch (cmd) {
     });
     break;
   default:
-    console.log("usage: bun tools/n3ds.ts <build|install|status|ctl|capture|bench> [--host ADDRESS]");
+    console.log("usage: bun tools/n3ds.ts <build|install|status|ctl|capture|bench|look> [--host ADDRESS]");
     process.exit(cmd ? 1 : 0);
 }

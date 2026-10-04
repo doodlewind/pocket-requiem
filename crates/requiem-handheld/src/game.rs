@@ -152,7 +152,10 @@ pub struct Game {
 }
 
 impl Game {
-    pub fn new(sim: Sim, scene: Scene, help: &'static str) -> Game {
+    pub fn new(mut sim: Sim, scene: Scene, help: &'static str) -> Game {
+        if scene.h.crowd_free >= 1.0 {
+            sim.crowd.free_cap = scene.h.crowd_free as usize;
+        }
         let set = Settings { auto: true, hud: true, stats: false, world: true, crowd: true, mage: true, fx: true, lod_near: scene.h.lod_near, lod_mid: scene.h.lod_mid, lod_far: scene.h.lod_far, repeat: 1, view: None, option: 0, govern: true, pace: PACE };
         Game { sim, synth: Synth::new(), scene, set, info: Info::default(), note: (String::new(), 0.0), prev_buttons: u32::MAX, frame: 0, lod_scale: 1.0, window: (0, 0, 0), stats_line: String::new(), help }
     }

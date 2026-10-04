@@ -33,8 +33,8 @@ pub struct Knight {
 }
 
 /// Knights a frame may draw as far figures built that frame: those of the cohorts the meshes' reach cuts
-/// through, and the ones out of formation beyond it.
-pub const FAR_FIGURES: usize = 192;
+/// through, the ones out of formation beyond it, and the ones within it that the meshes' cap left out.
+pub const FAR_FIGURES: usize = 448;
 /// Vertices of a knight in a cohort's mesh: a quad for the body, across the way the cohort faces, and one
 /// for the weapon.
 pub const RANK_VERTS: usize = 8;
@@ -64,11 +64,16 @@ pub struct CrowdList {
     /// Triangles of each mesh, by kind × levels + level.
     tris: Vec<u32>,
     draws: Vec<Draw>,
+    sorted: Vec<Draw>,
+    count: Vec<u32>,
+    /// Knights within the meshes' reach that the cap left out.
+    overflow: Vec<Far>,
     fars: Vec<Far>,
     levels: Vec<u8>,
     pub out: Vec<Knight>,
     /// A machine that blends a stored frame only with the next of its clip (the PSP).
     pairs: bool,
+    pub tones: Tones,
 }
 
 impl CrowdList {
@@ -79,7 +84,7 @@ impl CrowdList {
         for (r2, r) in reach2.iter_mut().zip(h.crowd_reach) {
             *r2 = r * r;
         }
-        CrowdList { lods, reach2, far: h.crowd_reach[lods - 1], budget: h.crowd_budget, max: h.crowd_max as usize, tris, draws: Vec::with_capacity(1024), fars: Vec::with_capacity(FAR_FIGURES * 2), levels: Vec::with_capacity(512), out: Vec::with_capacity(h.crowd_max as usize), pairs }
+        CrowdList { lods, reach2, far: h.crowd_reach[lods - 1], budget: h.crowd_budget, max: h.crowd_max as usize, tris, draws: Vec::with_capacity(1024), sorted: Vec::with_capacity(1024), count: Vec::with_capacity(512), overflow: Vec::with_capacity(512), fars: Vec::with_capacity(FAR_FIGURES * 2), levels: Vec::with_capacity(512), out: Vec::with_capacity(h.crowd_max as usize), pairs, tones: tones(h, pairs) }
     }
 
     fn level(&self, d2: f32, k2: f32) -> usize {
@@ -94,10 +99,10 @@ impl CrowdList {
     /// Fills `out` for this frame. `scale` pulls every distance in (below 1), for a governor.
     ///
     /// The budget is spent from the eye outward. Every knight starts at the coarsest level, and as many of
-    /// the nearest as half the budget pays for are kept. Half of the rest buys the finest level for the
-    /// knights nearest the eye; what remains buys finer levels one level at a time, nearest first, each
-    /// knight as far as its distance asks. A press of knights round the eye then has a fine front rank and
-    /// no blocks near her, and is not late.
+    /// the nearest as half the budget pays for are kept; the others are drawn as far figures. A quarter of
+    /// the rest buys the finest level for the knights nearest the eye; what remains buys finer levels one
+    /// level at a time, nearest first, each knight as far as its distance asks. A press of knights round
+    /// the eye then has a fine front rank and no coarse figure near her, and is not late.
     pub fn build(&mut self, sim: &Sim, planes: &[[f32; 4]; 6], eye: V3, scale: f32) -> Stats {
         let mut stats = Stats { pulled: 1.0, ..Stats::default() };
         self.out.clear();
@@ -106,21 +111,45 @@ impl CrowdList {
         let mesh_tris = |tris: &[u32], kind: u8, lod: usize| tris.get((kind as usize).min(2) * self.lods + lod).copied().unwrap_or(0);
         let coarsest = (0..3).map(|k| mesh_tris(&self.tris, k, low)).max().unwrap_or(1).max(1);
         let keep = self.max.min((self.budget as usize / 2) / coarsest as usize);
-        let by_distance = |a: &Draw, b: &Draw| a.dist2.partial_cmp(&b.dist2).unwrap_or(core::cmp::Ordering::Equal);
+        // Nearest first, by half-metre steps, and in the simulation's own order inside a step (a counting
+        // sort): two knights a hand apart do not trade places from frame to frame, so neither do their levels.
+        let steps = (self.far * scale * 2.0) as usize + 2;
+        self.count.clear();
+        self.count.resize(steps + 1, 0);
+        let step_of = |d: &Draw| ((sqrt(d.dist2) * 2.0) as usize).min(steps - 1);
+        for d in &self.draws {
+            self.count[step_of(d) + 1] += 1;
+        }
+        for k in 0..steps {
+            self.count[k + 1] += self.count[k];
+        }
+        self.sorted.clear();
+        self.sorted.resize(self.draws.len(), Draw { pos: V3::ZERO, yaw: 0.0, a: 0, b: 0, blend: 0.0, scale: 1.0, dist2: 0.0, flash: 0.0, kind: 0, pad: [0; 3] });
+        for d in &self.draws {
+            let k = step_of(d);
+            self.sorted[self.count[k] as usize] = *d;
+            self.count[k] += 1;
+        }
+        core::mem::swap(&mut self.draws, &mut self.sorted);
+        // The knights the cap leaves out are still there: on their feet they are drawn as far figures.
+        self.overflow.clear();
         if self.draws.len() > keep {
+            for d in &self.draws[keep..] {
+                if knight::frame_time(d.a).0 <= knight::clip::STAGGER {
+                    self.overflow.push(Far { pos: d.pos, dist2: d.dist2, kind: d.kind, big: (d.scale > 1.0) as u8, pad: [0; 2] });
+                }
+            }
             stats.dropped = (self.draws.len() - keep) as u32;
-            self.draws.select_nth_unstable_by(keep, by_distance);
             self.draws.truncate(keep);
         }
-        self.draws.sort_unstable_by(by_distance);
         let k2 = scale * scale;
         let mut left = self.budget as i32 - self.draws.iter().map(|d| mesh_tris(&self.tris, d.kind, low) as i32).sum::<i32>();
         // Level by level, from the coarsest but one to the finest, and nearest first inside a level: every
         // knight near enough for a level gets it before any knight gets a finer one.
         self.levels.clear();
         self.levels.resize(self.draws.len(), low as u8);
-        // The front rank first: half of what is left buys the finest level for the knights nearest the eye.
-        let front = left / 2;
+        // The front rank first: a quarter of what is left buys the finest level for the knights nearest the eye.
+        let front = left / 4;
         let mut spent = 0;
         for (k, d) in self.draws.iter().enumerate() {
             if self.level(d.dist2, k2) != 0 {
@@ -184,6 +213,7 @@ impl CrowdList {
         use crate::figures::ColorVertex;
         let cap = (out.len() / FAR_VERTS).min(FAR_FIGURES);
         sim.crowd.far(&sim.field, planes, eye, self.far * scale, to, self.far * scale, &mut self.fars);
+        self.fars.extend_from_slice(&self.overflow);
         if self.fars.len() > cap {
             self.fars.select_nth_unstable_by(cap, |a, b| a.dist2.partial_cmp(&b.dist2).unwrap_or(core::cmp::Ordering::Equal));
             self.fars.truncate(cap);
@@ -193,24 +223,43 @@ impl CrowdList {
             let s = if f.big != 0 { 1.2 } else { 1.0 };
             let v = &mut out[k * FAR_VERTS..(k + 1) * FAR_VERTS];
             let at = |x: f32, y: f32, color: [u8; 4]| ColorVertex { color, pos: [f.pos.x + r.x * x * s, f.pos.y + y * s, f.pos.z + r.z * x * s] };
-            v[0] = at(-0.2, 0.0, LOW);
-            v[1] = at(0.2, 0.0, LOW);
-            v[2] = at(0.34, 1.72, HIGH);
-            v[3] = at(-0.34, 1.72, HIGH);
+            let [low, high, steel] = self.tones;
+            v[0] = at(-0.2, 0.0, low);
+            v[1] = at(0.2, 0.0, low);
+            v[2] = at(0.34, 1.72, high);
+            v[3] = at(-0.34, 1.72, high);
             let tip = TIP[(f.kind as usize).min(2)];
-            v[4] = at(0.36, 0.9, LOW);
-            v[5] = at(0.43, 0.9, LOW);
-            v[6] = at(0.43, tip, STEEL);
-            v[7] = at(0.36, tip, STEEL);
+            v[4] = at(0.36, 0.9, low);
+            v[5] = at(0.43, 0.9, low);
+            v[6] = at(0.43, tip, steel);
+            v[7] = at(0.36, tip, steel);
         }
         self.fars.len() as u32
     }
 }
 
-/// Feet and shoulders of a far figure, and its weapon.
-const LOW: [u8; 4] = [58, 68, 98, 255];
-const HIGH: [u8; 4] = [150, 166, 204, 255];
-const STEEL: [u8; 4] = [176, 192, 226, 255];
+/// A far figure's colours: its feet, its shoulders, its weapon's tip.
+pub type Tones = [[u8; 4]; 3];
+
+/// The colours of a far figure, from the scene's light as the knights' meshes take it on this machine: the
+/// plate's tint in the hemisphere's shade at the feet and under a fifth of the moon at the shoulders (the
+/// eye looks toward the moon as often as away from it), and the blade's tint at the tip. `gleam`: the meshes' colours carry the baked gleam (the PSP), so these do too.
+pub fn tones(h: &HandScene, gleam: bool) -> Tones {
+    const PLATE: [f32; 3] = [0.52, 0.55, 0.62];
+    const BLADE: [f32; 3] = [0.68, 0.71, 0.78];
+    let enc = |x: f32| libm::powf(max(x, 0.0), 1.0 / 2.2);
+    let mut out = [[0u8, 0, 0, 255]; 3];
+    for c in 0..3 {
+        let hemi = |up: f32| h.bounce[c] + (h.sky[c] - h.bounce[c]) * up;
+        let shine = if gleam { enc(h.sun[c] * 0.07 + h.sky[c] * 0.15) * 0.8 } else { 0.0 };
+        let (shade, lit) = (enc(hemi(0.5)), enc(h.sun[c] * 0.22 + hemi(0.8)));
+        let byte = |x: f32| (min(x, 1.0) * 255.0 + 0.5) as u8;
+        out[0][c] = byte(PLATE[c] * shade + shine * 0.6);
+        out[1][c] = byte(PLATE[c] * lit + shine);
+        out[2][c] = byte(BLADE[c] * lit + shine);
+    }
+    out
+}
 /// The weapon's tip, by kind: sword, halberd, greatsword.
 const TIP: [f32; 3] = [2.0, 2.9, 2.4];
 
@@ -247,6 +296,7 @@ struct Rank {
 pub struct Ranks {
     ranks: Vec<Rank>,
     mem: *mut crate::figures::ColorVertex,
+    tones: Tones,
     pub draws: Vec<RankDraw>,
     /// Knights in the cohorts drawn this frame.
     pub knights: u32,
@@ -260,8 +310,8 @@ impl Ranks {
 
     /// # Safety
     /// `mem` is valid for `bytes(sim)` of memory the GPU reads, and outlives this.
-    pub unsafe fn new(sim: &Sim, mem: *mut u8) -> Ranks {
-        Ranks { ranks: sim.crowd.cohorts.iter().map(|c| Rank { knights: 0, x: c.x, z: c.z, yaw: c.yaw, bearing: 0.0 }).collect(), mem: mem.cast(), draws: Vec::with_capacity(sim.crowd.cohorts.len()), knights: 0 }
+    pub unsafe fn new(sim: &Sim, mem: *mut u8, tones: Tones) -> Ranks {
+        Ranks { tones, ranks: sim.crowd.cohorts.iter().map(|c| Rank { knights: 0, x: c.x, z: c.z, yaw: c.yaw, bearing: 0.0 }).collect(), mem: mem.cast(), draws: Vec::with_capacity(sim.crowd.cohorts.len()), knights: 0 }
     }
 
     /// The memory the draws' `first` counts in.
@@ -307,14 +357,15 @@ impl Ranks {
                     let tip = TIP[(crowd.kind[i] as usize).min(2)];
                     let v = unsafe { core::slice::from_raw_parts_mut(self.mem.add(c.first as usize * RANK_VERTS + k * RANK_VERTS), RANK_VERTS) };
                     let at = |along: f32, up: f32, color: [u8; 4]| ColorVertex { color, pos: [x + a.x * along * s, y + up * s, z + a.z * along * s] };
-                    v[0] = at(-0.2, 0.0, LOW);
-                    v[1] = at(0.2, 0.0, LOW);
-                    v[2] = at(0.34, 1.72, HIGH);
-                    v[3] = at(-0.34, 1.72, HIGH);
-                    v[4] = at(0.36, 0.9, LOW);
-                    v[5] = at(0.43, 0.9, LOW);
-                    v[6] = at(0.43, tip, STEEL);
-                    v[7] = at(0.36, tip, STEEL);
+                    let [low, high, steel] = self.tones;
+                    v[0] = at(-0.2, 0.0, low);
+                    v[1] = at(0.2, 0.0, low);
+                    v[2] = at(0.34, 1.72, high);
+                    v[3] = at(-0.34, 1.72, high);
+                    v[4] = at(0.36, 0.9, low);
+                    v[5] = at(0.43, 0.9, low);
+                    v[6] = at(0.43, tip, steel);
+                    v[7] = at(0.36, tip, steel);
                     k += 1;
                 }
                 *rank = Rank { knights: k as u32, x: c.x, z: c.z, yaw: c.yaw, bearing };
@@ -367,11 +418,11 @@ mod tests {
         assert!(by_dist.windows(2).all(|w| w[0].mesh % 3 <= w[1].mesh % 3), "a nearer knight is coarser than a farther one");
         // Every knight in view is drawn once: as a mesh, as a figure, or in its cohort's ranks.
         let mut mem = alloc::vec![0u8; Ranks::bytes(&sim)];
-        let mut ranks = unsafe { Ranks::new(&sim, mem.as_mut_ptr()) };
+        let mut ranks = unsafe { Ranks::new(&sim, mem.as_mut_ptr(), list.tones) };
         ranks.pick(&sim, &everything(), eye, list.far, 2000.0, 4);
         let mut figures = alloc::vec![crate::figures::ColorVertex::default(); FAR_FIGURES * FAR_VERTS];
         let far = list.far_figures(&sim, &everything(), eye, v3(1.0, 0.0, 0.0), 1.0, 2000.0, &mut figures);
-        assert_eq!(s.shown + s.dropped + far + ranks.knights, sim.crowd.n as u32);
+        assert_eq!(s.shown + far + ranks.knights, sim.crowd.n as u32);
         assert!(ranks.draws.iter().all(|d| d.built == 1 && d.verts % RANK_VERTS as u32 == 0));
         // Nothing moved: the next frame writes nothing.
         ranks.pick(&sim, &everything(), eye, list.far, 2000.0, 4);
