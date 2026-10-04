@@ -1,6 +1,6 @@
 # Pocket Requiem
 
-A crowd-battle action game for the PS Vita: at night, on a barren field, a mage meets the headless army a demon holds. One mage, a staff, and **4 053 knights** on one seamless field, at **30 frames per second**.
+A crowd-battle action game for the PS Vita, the PSP and the Nintendo 3DS: at night, on a barren field, a mage meets the headless army a demon holds. One mage, a staff, and **4 053 knights** on one seamless field, at **30 frames per second**.
 
 It plays like a crowd-battle action game. □ chains five strikes of the staff; △ after `n` strikes casts the spell of that step; ○ with a full gauge undoes the binding on every knight around her. A strike that lands holds the frame for a few ticks before anything moves again.
 
@@ -8,7 +8,9 @@ This repository is private, and the game is not for distribution.
 
 | | Screen | Renderer | Measured |
 | --- | --- | --- | --- |
-| PS Vita | 960 × 544, 4× MSAA, bloom, moon shafts, graded composite | GXM, programs compiled on the device | 90 s of the autopilot's fight: 2 700 frames, **0 late**, **512 to 1 785 knights in view** (mean 1 289), up to 337 000 triangles |
+| PS Vita | 960 × 544, 4× MSAA, bloom, moon shafts, graded composite | GXM, programs compiled on the device | 90 s of the autopilot's fight: 2 700 frames, **0 late**, **218 to 1 734 knights in view** (mean 1 080), up to 342 000 triangles |
+| PSP | 480 × 272, 16-bit colour | GE, fixed function | 2 700 frames, **0 late**, **163 to 1 553 knights in view** (mean 1 005), up to 31 000 triangles |
+| Nintendo 3DS (Old) | 400 × 240, the field from above on the lower screen | PICA200, vertex programs | 2 743 frames, 8 late (the measurement's own), **279 to 1 674 knights in view** (mean 1 055), up to 82 000 triangles |
 
 The repository holds the whole path from authoring to hardware:
 
@@ -16,8 +18,9 @@ The repository holds the whole path from authoring to hardware:
 - **`crates/requiem-sim`** is the game: the mage's moves, the army, the freeze a strike causes, the camera, every figure's motion, sound and the autopilot. The reference runs it as wasm; the compiler and the console link it natively. There is one implementation of every rule.
 - **`crates/requiem-cook`** compiles the stage for a device profile. It bakes the moonlight into vertex colours, merges the field into cells with levels of detail, **samples the knights' motion into stored frames**, lowers the effects to templates and constants, and writes one pack with a compile receipt.
 - **`vita/`** draws the pack and runs the simulation at two ticks per frame.
+- **`crates/requiem-handheld`** is what the PSP and the 3DS share: the ground built from two grids, the army's draw list and its far ranks, the effects evaluated into vertices, the sky, the interface and the loop round the simulation. **`psp/`** and **`n3ds/`** are the two renderers over it.
 
-PocketJS (pinned in `vendor/pocketjs`) supplies the Vita toolchain, the dev host, the GXM kernel and VPK packaging.
+PocketJS (pinned in `vendor/pocketjs`) supplies the device toolchains, the dev hosts, the GXM kernel and packaging.
 
 ## The army: stored frames instead of skeletons
 
@@ -68,7 +71,9 @@ Twenty-four effects in 72 layers: the arc of a sweep, the six-petalled circle at
 ## Compile
 
 ```
-generators (TypeScript)  →  StageIR  →  requiem-cook --profile vita30  →  the-field.vita30.pack + .compile.json
+generators (TypeScript)  →  StageIR  →  requiem-cook --profile vita30   →  the-field.vita30.pack  + .compile.json
+                                                      --profile psp30    →  the-field.psp30.pack
+                                                      --profile n3ds30   →  the-field.n3ds30.pack
 ```
 
 `bun tools/requiem.ts cook` exports StageIR (float geometry, the atlas, the models, the lowered effects, the simulation's world file, each file's SHA-256 in a manifest) and runs the compiler. The passes, in order:
@@ -80,7 +85,9 @@ generators (TypeScript)  →  StageIR  →  requiem-cook --profile vita30  →  
 5. **lower-effects**: templates as 12 signed bytes per vertex.
 6. **atlas-mips**, **interface-font**, **structural-budgets**.
 
-The pack is 59.6 MB.
+The Vita pack is 60.2 MB.
+
+The StageIR keeps the ground apart from what stands on it (three ground layers, three prop layers), so a profile decides what the ground becomes. The Vita's lowering merges a cell's ground with its props. The handhelds' lowering (`handheld.rs`) stores **no ground mesh**: the heights are the simulation's grid, which the game holds in memory for its own use, and the baked colours are a second grid of 513 × 513 16-bit entries (`GRND`, 0.5 MB in place of 860 000 triangles). The device builds the patches it draws. The same lowering cuts the mage into draws of the bones one draw can hold (4 on the GE, 19 uniform sets on the PICA), stores the army's frames in the layout each GPU blends, and converts the atlases. The PSP pack is **13.8 MB**, the 3DS pack **18.6 MB**.
 
 ## On the PS Vita
 
@@ -95,26 +102,50 @@ Measured on a PS Vita (PCH-2000, CPU 444 MHz, GPU 222 MHz), development build in
 
 | Window | Frames | Late frames | Average frame | Worst frame | Knights in view | Most triangles | Most draws |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 90 s | 2 700 | 0 | 33.37 ms | 33.47 ms | 512 – 1 785, mean 1 289 | 336 781 | 321 |
+| 90 s | 2 700 | 0 | 33.37 ms | 33.47 ms | 218 – 1 734, mean 1 080 | 341 647 | 306 |
 
-CPU time per frame: simulation (two ticks) 2.4 ms, the army's draw list and its instanced draws 3.7 ms, all drawing 4.9 ms. GPU time during the fight: 24 to 27 ms of the 33.3.
+CPU time per frame: simulation (two ticks) 1.4 ms, the army's draw list and its instanced draws 2.7 ms, all drawing 3.9 ms. GPU time during the fight: 24 to 27 ms of the 33.3.
 
 From a fixed view over the army, at one refresh per frame: sky and post chain 6.8 ms; the field 2.4 ms; the mage 3.3 ms at 62 700 triangles (she is 42 700 now); 700 knights 13.5 to 15.7 ms in all.
 
+## On the PSP and the 3DS
+
+Both run the same pack sections through `crates/requiem-handheld`; a device crate adds its GPU, its pad, its sound and its storage. A machine a tenth as fast draws the same field with four changes of method:
+
+- **The ground is two grids.** A frame walks the 256 m cells: a far one is a patch of 8 × 8 squares, a near one draws its 64 m cells at 16 × 16 squares inside the near distance and 8 × 8 outside. A patch's vertices are written once into a slot (28 near slots, 112 small ones) and stay until a patch that is needed takes the slot of one that no frame has drawn for three frames. Every patch of one size shares one index list.
+- **The army has a third rank.** Meshes reach 70 m. Beyond that a cohort still in formation is **one mesh of two quads per knight** (a body that widens to the shoulders, the weapon upright), written where the cohort stands, facing the eye, and drawn with the cohort's march since then as the draw's translation; it is written again after 1.5 m of march, a turn, a lost knight, or 17° of the eye's bearing. A thousand knights are a few dozen draws, and a frame rewrites four cohorts at most.
+- **The triangle budget is spent from the eye outward** (`crowd.rs`): every knight in view starts at the coarsest mesh, half of what is left buys the finest level for the front rank, and the rest buys one level at a time, nearest first.
+- **The effects are evaluated on the CPU** (`fx.rs`): the Vita's four vertex programs as loops, with what an instance's vertices share computed once and what a particle's corners share once per particle. A device draws two batches: the layers that cover, then the layers that add light. An effect beyond 30 m draws every second particle, beyond 70 m every fourth, and a full buffer leaves out the farthest.
+
+**PSP** (`psp/`, GE fixed function). A knight is one draw of **two morph targets**: the pack stores each frame of the army next to the frame after it (`CRWP`), and the GE blends the pair by the knight's weight; the moon and the sky are baked into each frame's colours. A light a spell casts is a GE point light whose ambient term carries its colour, so knights, ground and props brighten round it without normals. A struck knight's flash is the haze set to a constant share of white for that draw. The ground's squares within 21 m of the eye are tested against the GE's guard band and cut on the CPU. What the CPU computes each frame is written to ordinary memory and flushed, not to the display list's own memory: that is addressed past the data cache, and the interface alone cost 2.6 ms there.
+
+**3DS** (`n3ds/`, C over citro3d, the shared crate behind a C interface). A knight is one draw of two stored frames bound as two buffers and blended by `crowd.v.pica`; the Vita's `CRWD` section is used as it is. The spells' two strongest lights enter the army's, the figures' and (when one is lit) the ground's vertex programs. The lower screen shows the field from above with the cohorts still in formation.
+
+Measured with the autopilot fighting for 90 s (`bun tools/psp.ts bench`, `bun tools/n3ds.ts bench`):
+
+| Device | Frames | Late | Average | Worst | Knights in view | As meshes | Most triangles | Most draws | CPU: simulation, frame build |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| PSP (333 MHz, over PSPLINK) | 2 700 | 0 | 33.37 ms | 33.43 ms | 163 – 1 553, mean 1 005 | mean 85, most 105 | 31 158 | 194 | 6.6 ms, 9.6 ms |
+| Old 3DS (over the dev wire) | 2 743 | 8 | 33.48 ms | 52.6 ms | 279 – 1 674, mean 1 055 | mean 100, most 198 | 82 331 | 285 | 8.6 ms, 7.3 ms |
+
+The 3DS bench asks the console for its status 18 times, and an answer costs it about one frame; its worst frame is one of those.
+
+The PSP's GE is the limit: at 37 000 triangles it finished 13 of 2 700 frames late, at 31 000 none, so the profile's distances and the knights' budget (10 500 triangles of meshes) are set there. The PSP uses 17.4 MB after loading. Its CPU needed the simulation 2.8 times faster than it was (18.5 ms a frame to 6.6 ms): knights on their feet step every other tick (every machine shows a frame per two ticks), the neighbour grid is 1 024 cells of 16 bits (the 4 096-cell tables were twice the PSP's data cache, walked every tick), and the synthesizer reads sines and decays from tables. Those changes are in `requiem-sim`, so the Vita's simulation went from 2.4 ms to 1.4 ms a frame.
+
 ## Controls
 
-| | Vita | Keyboard |
-| --- | --- | --- |
-| Strike | □ | J |
-| Spell | △ | K |
-| Evade | ✕ | Space |
-| Undo the binding (full gauge) | ○ | L |
-| Barrier (hold) | L | Q |
-| Hover (hold) | R | Shift |
-| Move | left stick | WASD |
-| Camera | right stick | arrows or mouse |
-| Autopilot on or off | START | `?auto` in the URL |
-| Start again | SELECT | Backspace |
+| | Vita | PSP | 3DS | Keyboard |
+| --- | --- | --- | --- | --- |
+| Strike | □ | □ | Y | J |
+| Spell | △ | △ | X | K |
+| Evade | ✕ | ✕ | B | Space |
+| Undo the binding (full gauge) | ○ | ○ | A | L |
+| Barrier (hold) | L | L | L | Q |
+| Hover (hold) | R | R | R | Shift |
+| Move | left stick | stick | Circle Pad | WASD |
+| Camera | right stick | direction pad | +Control Pad or C-Stick | arrows or mouse |
+| Autopilot on or off | START | START | START | `?auto` in the URL |
+| Start again | SELECT | SELECT | SELECT | Backspace |
 
 ## Commands
 
@@ -133,9 +164,26 @@ bun tools/requiem.ts native            # sync the pack, build, replace the binar
 bun tools/requiem.ts status | capture --out f.png | bench --seconds 90
 bun tools/requiem.ts ctl '{"auto":false,"view":{"pos":[0,14,500],"target":[0,0,300],"fov":58}}'
 
+# PSP (PSPLINK)
+bun tools/requiem.ts cook --profile psp30
+bun tools/psp.ts serve                 # usbhostfs_pc with a log (one owns the cable)
+bun tools/psp.ts run                   # build, stage on host0:, reset PSPLINK, wait for it, start
+bun tools/psp.ts status | capture --out f.png | bench --seconds 90 | ctl "crowd=0 stats=1"
+bun tools/psp.ts emu --frames 600 --out f.png   # PPSSPPHeadless, software renderer
+bun tools/psp.ts package               # dist/psp/PSP/GAME/PocketRequiem for a Memory Stick
+
+# Nintendo 3DS (.3dsx over the paired LAN wire)
+bun tools/requiem.ts cook --profile n3ds30
+bun tools/n3ds.ts install              # build in the devkitARM container, send, start
+bun tools/n3ds.ts status | capture --out f.png | bench --seconds 90 | ctl "auto=1"
+
+cargo run --release -p requiem-handheld --example probe -- .pocket-build/stage/the-field.psp30.pack 90
+
 cargo test --workspace
 cargo run --release -p requiem-sim --bin harness -- .pocket-build/stage/ir/stage.rqsw 120
 ```
+
+PSP and 3DS control words (`Game::control`): `auto hud stats world crowd mage fx govern` take 0 or 1; `lodNear lodMid lodFar repeat option pace` a number; `reset=1`; `view=px,py,pz,tx,ty,tz,fov` or `view=off`.
 
 Vita `ctl` keys: `auto`, `reset`, `view {pos, target, fov}`, `pace` (refreshes per frame), `profile`, `world`, `crowd`, `mage`, `fx`, `crowdScale`, `crowdBudget`, `farFrom`, `lodNear`, `lodMid`, `hud`, `stats`, `post {…}`, `fetch`.
 
@@ -150,17 +198,23 @@ Vita `ctl` keys: `auto`, `reset`, `view {pos, target, fov}`, `pace` (refreshes p
 | `web/scripts/export-stage.ts` | StageIR export |
 | `crates/requiem-sim` | simulation core, wasm interface, snapshot layout, harness |
 | `crates/requiem-pack` | pack container and layouts |
-| `crates/requiem-cook` | the compiler |
+| `crates/requiem-cook` | the compiler: `main.rs` (Vita), `handheld.rs` (PSP, 3DS) |
+| `crates/requiem-handheld` | what the PSP and the 3DS share; `examples/probe.rs` runs a handheld pack without a GPU |
 | `vita/` | Vita app and its Cg programs |
+| `psp/` | PSP app: the GE renderer, the PSPLINK mailbox |
+| `n3ds/` | 3DS app: C host and PICA programs (`src/`), the shared crate behind a C interface (`core/`) |
 | `profiles/` | compile profiles |
-| `tools/` | `requiem.ts`, `vita.ts`, `bench.ts`, `shot.ts` |
+| `tools/` | `requiem.ts`, `vita.ts`, `psp.ts`, `n3ds.ts`, `bench.ts`, `shot.ts` |
 
 ## Not done
 
-- **PSP and 3DS.** The pack layouts for them are in `requiem-pack`; no profile, lowering or runtime exists yet. The stored frames suit both: the GE blends vertex frames in hardware, and a PICA vertex program can.
+- **PSP and 3DS, by eye.** Both are measured and captured; nobody has played either. On the PSP most knights within 34 m are the 114-triangle figure of prisms, and five to eight are the 704-triangle mesh: the GE has no room for more. The PSP's mage is 6 158 triangles and the 3DS's 8 484 (42 694 on the Vita). Neither has post-processing; a heavy strike's freeze whitens the frame through the interface.
+- The 3DS plays sound through CSND (no DSP firmware dump on the test console); the PSP at 11 kHz. Neither has been heard.
+- The PSP has been run from PSPLINK only, on a console with 56 MB free; `bun tools/psp.ts package` writes the Memory Stick layout, and the 17.4 MB it uses fits a 24 MB PSP-1000 on paper.
 - **No ending.** The demon stands on her rise with the scales raised (`demon.rs`, `web/src/model/demon.ts`) and kneels when 1 000 knights are undone; the stage shows a line of text and nothing else.
 - No grass on the field; the ground is one texture and the bake.
 - The sound has not been heard by a person on the console. Hand feel (the freeze lengths, the cancel windows, the camera) is set from the autopilot and from captures, not by play.
 - The army's damage and turn-taking are set so that the autopilot does not fall in five minutes of the harness; they have not been tuned by play.
 - The reference draws no post-processing; the look of the console's frame is checked on the console.
-- The pack is read whole into memory before it is uploaded; a section-by-section loader would halve the peak.
+- The Vita reads the pack whole into memory before it is uploaded; a section-by-section loader would halve the peak.
+- The 3DS core links with thin link-time optimization: the full pass fails to load the simulation's bitcode with that toolchain's nightly. `cargo test --release` fails to link the simulation's two binaries for the same family of reason; `cargo test` and `cargo run --release` work.
