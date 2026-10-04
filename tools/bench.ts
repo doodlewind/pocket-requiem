@@ -1,4 +1,4 @@
-// Frame timings on the device while the autopilot flies the route.
+// Frame timings on the device while the autopilot fights.
 //
 //   bun tools/requiem.ts bench [--seconds 60] [--ctl '{"lodMid":300}'] [--share DIR]
 //
@@ -23,7 +23,9 @@ interface Sample {
   cpuMs: Record<string, number>;
   gpuMs: number | null;
   world: Record<string, number>;
-  actors: Record<string, number>;
+  crowd: Record<string, any>;
+  fx: Record<string, number>;
+  mage: Record<string, number>;
   player: Record<string, unknown>;
 }
 
@@ -51,7 +53,7 @@ export async function bench(argv: string[]) {
     const s = status(argv);
     const e = s.engine;
     if (e.frames === prev.frames) continue;
-    const sample: Sample = { t: (Date.now() - start) / 1000, frameMs: e.frameMs, worstMs: e.worstMs, late: e.late, frames: e.frames, cpuMs: e.cpuMs, gpuMs: e.gpuMs, world: e.world, actors: e.actors, player: e.player };
+    const sample: Sample = { t: (Date.now() - start) / 1000, frameMs: e.frameMs, worstMs: e.worstMs, late: e.late, frames: e.frames, cpuMs: e.cpuMs, gpuMs: e.gpuMs, world: e.world, crowd: e.crowd, fx: e.fx, mage: e.mage, player: e.player };
     evidence.observe(identity(s), sample);
     samples.push(sample);
     prev = e;
@@ -61,9 +63,25 @@ export async function bench(argv: string[]) {
   const late = samples.at(-1)!.late - first.engine.late;
   const avg = samples.reduce((n, s) => n + s.frameMs, 0) / samples.length;
   const worst = Math.max(...samples.map((s) => s.worstMs));
-  const maxTris = Math.max(...samples.map((s) => s.world.tris + s.actors.tris));
-  const maxDraws = Math.max(...samples.map((s) => s.world.draws + s.actors.draws));
-  const summary = { seconds, frames, lateFrames: late, lateShare: late / Math.max(frames, 1), averageFrameMs: avg, worstFrameMs: worst, fps: 1000 / avg, maxTriangles: maxTris, maxDraws, control: extra };
+  const maxTris = Math.max(...samples.map((s) => s.world.tris + s.crowd.tris + s.mage.tris + s.fx.tris));
+  const maxDraws = Math.max(...samples.map((s) => s.world.draws + s.crowd.draws + s.fx.draws + 1));
+  const knights = samples.map((s) => s.crowd.shown as number);
+  const cpu = (k: string) => samples.reduce((n, s) => n + s.cpuMs[k], 0) / samples.length;
+  const summary = {
+    seconds,
+    frames,
+    lateFrames: late,
+    lateShare: late / Math.max(frames, 1),
+    averageFrameMs: avg,
+    worstFrameMs: worst,
+    fps: 1000 / avg,
+    maxTriangles: maxTris,
+    maxDraws,
+    knightsInView: { least: Math.min(...knights), mean: Math.round(knights.reduce((a, b) => a + b, 0) / knights.length), most: Math.max(...knights, samples.at(-1)!.crowd.mostShown) },
+    cpuMs: { sim: cpu("sim"), crowd: cpu("crowd"), draw: cpu("draw") },
+    undone: samples.at(-1)!.player.kos,
+    control: extra,
+  };
   const dir = resolve(ROOT, `.pocket-build/validation/vita/bench-${new Date().toISOString().replace(/[:.]/g, "-")}`);
   mkdirSync(dir, { recursive: true });
   writeFileSync(`${dir}/device.json`, JSON.stringify({ summary, ...evidence.receipt() }, null, 1));

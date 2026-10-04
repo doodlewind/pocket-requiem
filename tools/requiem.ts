@@ -89,6 +89,6 @@ switch (cmd) {
     break;
   }
   default:
-    console.log("usage: bun tools/requiem.ts <sim|export|cook|shot|build|sync|native|serve|status|capture|ctl|bench>");
+    console.log("usage: bun tools/requiem.ts <sim|export|cook|shot|build|sync|native|push|serve|status|capture|ctl|bench|hold>");
     process.exit(cmd ? 1 : 0);
 }
