@@ -208,6 +208,7 @@ pub struct Figures {
     moon_fans: u32,
     star_vb: *const u8,
     mage: SkinMesh,
+    demon: SkinMesh,
     /// Shared indices for quads: 0 1 2, 0 2 3, per four vertices.
     pub quad_ib: *const u16,
     /// Shared indices for discs of `FAN + 1` vertices.
@@ -230,6 +231,7 @@ impl Figures {
 
         // Skinned models, copied as they are in the pack.
         let mut mage = SkinMesh { vb: core::ptr::null(), ib: core::ptr::null(), idx: 0 };
+        let mut demon = mage;
         let mut at = 4;
         for _ in 0..count {
             let h: ModelHeader = pack::read(modl, at).ok_or("model header")?;
@@ -245,8 +247,10 @@ impl Figures {
             let ib = alloc(ibytes)?;
             core::ptr::copy_nonoverlapping(modl.as_ptr().add(at), ib, ibytes);
             at = (at + ibytes + 3) & !3;
-            if h.id == 0 {
-                mage = SkinMesh { vb, ib: ib.cast(), idx: h.idx_count };
+            match h.id {
+                0 => mage = SkinMesh { vb, ib: ib.cast(), idx: h.idx_count },
+                4 => demon = SkinMesh { vb, ib: ib.cast(), idx: h.idx_count },
+                _ => {}
             }
         }
         if mage.idx == 0 {
@@ -350,7 +354,7 @@ impl Figures {
             }
         }
 
-        Ok(Figures { _block: block, sky_vb: sky_vb.cast(), sky_ib, sky_idx: sky_idx as u32, moon_vb: moon_vb.cast(), moon_ib, moon_fans: MOON_FANS as u32, star_vb: star_vb.cast(), mage, quad_ib, fan_ib })
+        Ok(Figures { _block: block, sky_vb: sky_vb.cast(), sky_ib, sky_idx: sky_idx as u32, moon_vb: moon_vb.cast(), moon_ib, moon_fans: MOON_FANS as u32, star_vb: star_vb.cast(), mage, demon, quad_ib, fan_ib })
     }
 
     /// Bytes `update` takes from the ring.
@@ -425,6 +429,22 @@ impl Figures {
         lit.set(ctx, vp, &rows, light, cast, eye, fog);
         gpu::draw(ctx, self.mage.vb, self.mage.ib, self.mage.idx);
         self.mage.idx / 3
+    }
+
+    /// The demon, where she stands, when she is within sight. Returns her triangles.
+    pub unsafe fn draw_demon(&self, ctx: *mut g::SceGxmContext, prog: &Program, lit: &Lit, vp: &Mat4, sim: &Sim, light: &[f32; 16], cast: &[f32; 32], eye: V3, fog: f32, cull_cw: bool) -> u32 {
+        let (x, z, _) = sim.stage.demon;
+        let at = sim.field.point(x, z);
+        if self.demon.idx == 0 || (at - eye).len() > 320.0 || !mat::visible(&mat::planes(vp), &[at.x - 1.5, at.y - 0.5, at.z - 1.5], &[at.x + 1.5, at.y + 2.6, at.z + 1.5]) {
+            return 0;
+        }
+        prog.bind(ctx, false);
+        gpu::state_opaque(ctx, cull_cw);
+        let mut rows = [0.0f32; BONES * 12];
+        bone_rows(&requiem_sim::demon::skin(sim), &mut rows);
+        lit.set(ctx, vp, &rows, light, cast, eye, fog);
+        gpu::draw(ctx, self.demon.vb, self.demon.ib, self.demon.idx);
+        self.demon.idx / 3
     }
 
     /// The shadows, blended over the ground.

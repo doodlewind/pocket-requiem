@@ -277,7 +277,7 @@ impl Sim {
             p.chain_t = 0;
             let was = p.mana;
             if hit.react != crate::moves::react::DISPEL {
-                p.mana = min(p.mana + s.count as f32 * 0.4 + s.kills as f32 * 0.9, tune::MANA_MAX);
+                p.mana = min(p.mana + s.count as f32 * 0.45 + s.kills as f32 * 0.6, tune::MANA_MAX);
             }
             if was < tune::MANA_MAX && p.mana >= tune::MANA_MAX {
                 self.events |= ev::READY;
@@ -338,23 +338,24 @@ impl Sim {
             }
             self.p.hp -= b.damage;
             self.p.hurt_t = 0;
-            self.p.chain = 0;
-            self.p.vel = b.dir * 5.0;
-            self.p.spin = 0.0;
-            self.p.volley = 0;
+            if self.p.act != act::MOVE {
+                self.p.vel = b.dir * 4.0;
+            }
             self.events |= ev::HURT;
             self.cam.shake = max(self.cam.shake, 0.45);
             self.fx.spawn(self.tick, fx::kind::HURT, self.p.pos + v3(0.0, 1.0, 0.0), b.dir, 1.0, 0);
             if self.p.hp <= 0.0 {
                 self.p.hp = 0.0;
                 self.p.act = act::DOWN;
+                self.p.t = 0;
                 self.events |= ev::FALLEN;
-            } else {
+            } else if self.p.act != act::MOVE {
+                // A blow staggers her when she stands or runs; in a move of her own she keeps her feet.
                 self.p.act = act::HIT;
+                self.p.t = 0;
+                self.stop = self.stop.max(3);
+                self.stop_len = self.stop;
             }
-            self.p.t = 0;
-            self.stop = self.stop.max(4);
-            self.stop_len = self.stop;
         }
 
         self.fly_bolts();
@@ -368,8 +369,8 @@ impl Sim {
             self.p.chain = 0;
         }
         self.p.hurt_t += 1;
-        if self.p.hurt_t > 300 && self.p.act != act::DOWN {
-            self.p.hp = min(self.p.hp + 25.0 * DT, tune::HP_MAX);
+        if self.p.hurt_t > 150 && self.p.act != act::DOWN {
+            self.p.hp = min(self.p.hp + 60.0 * DT, tune::HP_MAX);
         }
 
         self.update_camera(&input, false);
@@ -537,7 +538,7 @@ impl Sim {
             act::HIT => {
                 self.p.vel = self.p.vel * exp(-9.0 * DT);
                 self.p.t += 1;
-                if self.p.t >= 22 {
+                if self.p.t >= 14 {
                     self.p.act = act::FREE;
                     self.p.t = 0;
                 }
@@ -637,6 +638,9 @@ impl Sim {
                 c.yaw = wrap_angle(c.yaw + d * (1.0 - exp(-(0.9 + p.hover * 1.2) * DT)));
             }
             c.pitch = ease(c.pitch, 0.4, 0.6, DT);
+        }
+        if c.idle > 120 {
+            c.pitch = ease(c.pitch, 0.4, 0.8, DT);
         }
         let unsealing = p.act == act::MOVE && p.mv == mv::UNSEAL;
         let dist = if unsealing { 10.5 } else { 7.2 + p.hover * 1.6 };

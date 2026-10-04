@@ -40,7 +40,7 @@ const ENGAGE: f32 = 52.0;
 /// A free knight further than this from her stands still.
 const LEASH: f32 = 110.0;
 /// Knights that may be winding up or striking at once.
-const ATTACKERS: u32 = 4;
+const ATTACKERS: u32 = 3;
 const GRAVITY: f32 = 22.0;
 /// Ticks a cross-fade between two clips takes.
 pub const FADE: u8 = 6;
@@ -178,7 +178,7 @@ impl Crowd {
             phase: vec![0.0; n],
             from: vec![0; n],
             fade: vec![0; n],
-            hp: vec![100; n],
+            hp: vec![60; n],
             freeze: vec![0; n],
             flash: vec![0; n],
             cool: vec![0; n],
@@ -216,7 +216,7 @@ impl Crowd {
                 if m.captain != 0 && k == m.cols as usize / 2 {
                     c.big[i] = 1;
                     c.kind[i] = 2;
-                    c.hp[i] = 520;
+                    c.hp[i] = 340;
                 }
             }
             let radius = 0.5 * sqrt((m.cols as f32 * m.spacing) * (m.cols as f32 * m.spacing) + 4.0 * (m.rows as f32 * m.spacing) * (m.rows as f32 * m.spacing)) + 2.0;
@@ -462,14 +462,14 @@ impl Crowd {
                         let reach = knight::REACH[self.kind[i] as usize] * if self.big[i] != 0 { CAPTAIN_SCALE } else { 1.0 };
                         fx.spawn(tick, fx::kind::SLASH, v3(self.x[i], self.y[i] + 1.1, self.z[i]), f, reach, 0);
                         if d < reach + 0.4 && (dx * f.x + dz * f.z) / d > 0.45 && blow < 4 && abs(target.y - self.y[i]) < 2.4 {
-                            let damage = [16.0, 20.0, 27.0][self.kind[i] as usize] * if self.big[i] != 0 { 1.6 } else { 1.0 };
+                            let damage = [6.0, 8.0, 11.0][self.kind[i] as usize] * if self.big[i] != 0 { 2.0 } else { 1.0 };
                             self.blows[blow] = Some(Blow { damage, dir: v3(dx / d, 0.0, dz / d) });
                             blow += 1;
                         }
                     }
                     if since >= 78 {
                         self.state[i] = state::CHASE;
-                        self.cool[i] = 110 + (hash(i as u32 ^ tick) % 260) as u16;
+                        self.cool[i] = 150 + (hash(i as u32 ^ tick) % 330) as u16;
                     }
                 }
                 state::STAGGER | state::KNOCK => {

@@ -15,6 +15,7 @@ import { join, resolve } from "node:path";
 import { FX_ATLAS, paintFxAtlas } from "../src/fx/atlas";
 import { compileEffects } from "../src/fx/effects";
 import { TEMPLATE_STRIDE } from "../src/fx/ir";
+import { buildDemon } from "../src/model/demon";
 import { buildMage } from "../src/model/mage";
 import { buildKnight, buildKnightFar, KnightDetail } from "../src/model/knight";
 import { SKIN_STRIDE, SkinModel } from "../src/model/sdf";
@@ -143,10 +144,13 @@ function fxBytes(seed: number): Uint8Array {
 const t0 = performance.now();
 const gen = generate(seed);
 const buckets = gen.meshes.sorted().filter((b) => b.geo.ni > 0);
-// Models are built on the simulation's bind poses. The mage is model 0; a knight of kind k at level l is model 100 k + l.
+// Models are built on the simulation's bind poses. The mage is model 0 and the demon model 4; a knight of kind k at level l is model 100 k + l.
 const wasm = await Bun.file(join(import.meta.dir, "../public/sim/requiem_sim.wasm")).arrayBuffer();
 const sim = await Sim.load(wasm, null, 0);
-const models: { id: number; model: SkinModel }[] = [{ id: 0, model: buildMage(sim.bind(FIGURE.MAGE), [0.0155, 0.009]) }];
+const models: { id: number; model: SkinModel }[] = [
+  { id: 0, model: buildMage(sim.bind(FIGURE.MAGE), [0.0155, 0.009]) },
+  { id: FIGURE.DEMON, model: buildDemon(sim.bind(FIGURE.DEMON)) },
+];
 const knightStats: Record<string, number[]> = {};
 for (const kind of [FIGURE.KNIGHT_SWORD, FIGURE.KNIGHT_HALBERD, FIGURE.KNIGHT_GREAT]) {
   knightStats[kind] = [];

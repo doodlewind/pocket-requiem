@@ -152,7 +152,7 @@ impl Skeleton {
 
     /// The demon: 1.6 m, slender; her tails are two long braids.
     pub fn demon() -> Skeleton {
-        Skeleton::build(&Build { pelvis: 0.875, spine: 0.09, chest: 0.14, neck: 0.225, head: 0.055, clav: (0.03, 0.17), shoulder: 0.12, upper: 0.235, fore: 0.22, hip: (0.082, -0.05), thigh: 0.39, shin: 0.375, tail_at: v3(0.085, 0.07, 0.07), tail: 0.24 })
+        Skeleton::build(&Build { pelvis: 0.875, spine: 0.09, chest: 0.14, neck: 0.225, head: 0.055, clav: (0.03, 0.17), shoulder: 0.12, upper: 0.235, fore: 0.22, hip: (0.082, -0.05), thigh: 0.39, shin: 0.375, tail_at: v3(0.1, 0.05, -0.078), tail: 0.2 })
     }
 
     pub fn of(kind: u32) -> Skeleton {

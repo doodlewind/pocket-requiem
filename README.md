@@ -44,7 +44,7 @@ It is night. The moon is low in the north, ahead of the mage, drawn large; the s
 - **Moves are data** (`moves.rs`): a length in ticks, the tick each strike lands and its shape (a sector, a lane, a disc), its damage, push and lift, the ticks it freezes the frame, the first tick a buffered input may cancel it, and the move a light or a heavy input leads to. A press waits up to 16 ticks for a move to accept it.
 - **The freeze.** A strike that lands holds the mage and every knight it struck for 3 to 16 ticks; a struck knight keeps its frame and shivers, then flies. The rest of the field moves on. Inputs pressed during the hold are kept.
 - **The spells.** △ alone: a beam, a lane 30 m long. After one to four strikes: a rising burst that lifts what stands around her, lightning in a fan, fire as a burst ahead, and a volley of ten homing bolts. ✕ evades; L raises the barrier; R hovers at 15 m/s.
-- **The army** takes turns: four knights at most wind up or strike at once; the rest stand off in a loose ring. A struck knight staggers, is driven back, or leaves the ground; one whose binding is undone falls where it stands, and what leaves it rises as a pale flame.
+- **The army** takes turns: three knights at most wind up or strike at once; the rest stand off in a loose ring. A blow costs her 6 to 11 of 1 000 and staggers her when she is not in a move of her own; a knight falls to two strikes of the staff. A struck knight staggers, is driven back, or leaves the ground; one whose binding is undone falls where it stands, and what leaves it rises as a pale flame.
 - **The autopilot** plays through the same inputs as a person. It is the attract mode and the repeatable load for measurements.
 
 Transcendentals go through `libm`, so wasm, the host and the Vita compute the same values; `cargo test` runs the autopilot twice and compares.
@@ -56,6 +56,7 @@ Transcendentals go through `libm`, so wasm, the host and the Vita compute the sa
 | | Triangles |
 | --- | --- |
 | The mage | 42 700 |
+| The demon | 31 000 |
 | A knight, by level | 7 700, 2 060, 704, then 114 and 50 built of boxes |
 
 ## Effects: templates and constants
@@ -157,9 +158,9 @@ Vita `ctl` keys: `auto`, `reset`, `view {pos, target, fov}`, `pace` (refreshes p
 ## Not done
 
 - **PSP and 3DS.** The pack layouts for them are in `requiem-pack`; no profile, lowering or runtime exists yet. The stored frames suit both: the GE blends vertex frames in hardware, and a PICA vertex program can.
-- **The demon is posed, not modelled.** `demon.rs` places her; no model is built or drawn, and the stage has no ending beyond a line of text when 1 000 knights are undone.
+- **No ending.** The demon stands on her rise with the scales raised (`demon.rs`, `web/src/model/demon.ts`) and kneels when 1 000 knights are undone; the stage shows a line of text and nothing else.
 - No grass on the field; the ground is one texture and the bake.
 - The sound has not been heard by a person on the console. Hand feel (the freeze lengths, the cancel windows, the camera) is set from the autopilot and from captures, not by play.
-- The autopilot falls about once a minute: the army's damage and turn-taking need play to tune.
+- The army's damage and turn-taking are set so that the autopilot does not fall in five minutes of the harness; they have not been tuned by play.
 - The reference draws no post-processing; the look of the console's frame is checked on the console.
 - The pack is read whole into memory before it is uploaded; a section-by-section loader would halve the peak.

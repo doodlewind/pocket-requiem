@@ -235,6 +235,9 @@ struct Settings {
     look: Look,
     /// A fixed camera: eye, target, vertical field of view.
     view: Option<(V3, V3, f32)>,
+    /// Presses to make, one every fourteen ticks, with the autopilot off: a chain to look at.
+    cast: Vec<u32>,
+    cast_wait: u32,
 }
 
 fn apply_control(v: &Value, s: &mut Settings, sim: &mut Sim) {
@@ -282,6 +285,11 @@ fn apply_control(v: &Value, s: &mut Settings, sim: &mut Sim) {
     if v["reset"].as_bool() == Some(true) {
         sim.reset();
     }
+    if let Some(list) = v["cast"].as_array() {
+        s.cast = list.iter().rev().filter_map(|b| b.as_u64().map(|b| b as u32)).collect();
+        s.cast_wait = 0;
+        s.auto = false;
+    }
     let f = |a: &Value, i: usize| a.get(i).and_then(Value::as_f64).unwrap_or(0.0) as f32;
     s.view = match (&v["view"]["pos"], &v["view"]["target"]) {
         (p, t) if p.is_array() && t.is_array() => Some((v3(f(p, 0), f(p, 1), f(p, 2)), v3(f(t, 0), f(t, 1), f(t, 2)), v["view"]["fov"].as_f64().unwrap_or(58.0) as f32)),
@@ -298,11 +306,12 @@ fn pad_input(pad: &input::Pad) -> Input {
     }
     let axis = |v: u8| {
         let x = (v as f32 - 127.5) / 127.5;
-        // The sticks rest a little off centre.
-        if abs(x) < 0.16 {
+        // The sticks rest off centre by up to a fifth of their travel: nothing inside that counts, and the rest is rescaled.
+        const DEAD: f32 = 0.24;
+        if abs(x) < DEAD {
             0.0
         } else {
-            x
+            (x - DEAD * if x < 0.0 { -1.0 } else { 1.0 }) / (1.0 - DEAD)
         }
     };
     Input { buttons: b, lx: axis(pad.lx), ly: -axis(pad.ly), rx: axis(pad.rx), ry: -axis(pad.ry) }
@@ -477,7 +486,7 @@ fn main() {
         };
         let mut fence = Fence::new(0, 2);
         let control = if live { control_watcher() } else { mpsc::channel().1 };
-        let mut set = Settings { auto: true, hud: true, stats: live, cull_cw: true, profile: false, lod_near: scene.lod_near, lod_mid: scene.lod_mid, world: true, crowd: true, mage: true, fx: true, crowd_budget: None, crowd_scale: 1.0, far_from: 2, pace: boot["pace"].as_i64().unwrap_or(2) as i32, look: Look::DEFAULT, view: None };
+        let mut set = Settings { auto: true, hud: true, stats: live, cull_cw: true, profile: false, lod_near: scene.lod_near, lod_mid: scene.lod_mid, world: true, crowd: true, mage: true, fx: true, crowd_budget: None, crowd_scale: 1.0, far_from: 2, pace: boot["pace"].as_i64().unwrap_or(2) as i32, look: Look::DEFAULT, view: None, cast: Vec::new(), cast_wait: 0 };
 
         // Sound: the synthesizer renders at 22.05 kHz; the host module doubles it for the port.
         let mut synth = requiem_sim::audio::Synth::new();
@@ -529,7 +538,15 @@ fn main() {
             let t0 = Instant::now();
             let mut events = 0u32;
             for _ in 0..vblanks {
-                let inp = if set.auto { sim.auto_input() } else if dev.menu.visible { Input::default() } else { pad_input(&input::Pad { buttons, ..pad }) };
+                let mut inp = if set.auto { sim.auto_input() } else if dev.menu.visible { Input::default() } else { pad_input(&input::Pad { buttons, ..pad }) };
+                if !set.cast.is_empty() {
+                    if set.cast_wait == 0 {
+                        inp.buttons |= set.cast.pop().unwrap_or(0);
+                        set.cast_wait = 14;
+                    } else {
+                        set.cast_wait -= 1;
+                    }
+                }
                 sim.tick(inp);
                 events |= sim.events;
                 synth.control(&sim, sim.events);
@@ -640,6 +657,7 @@ fn main() {
             }
             if set.mage {
                 mage_tris = figures.draw_mage(ctx, &skin_prog, &skin_lit, &vp, &sim, &light, &cast, eye, scene.fog_density, set.cull_cw);
+                mage_tris += figures.draw_demon(ctx, &skin_prog, &skin_lit, &vp, &sim, &light, &cast, eye, scene.fog_density, set.cull_cw);
             }
             if set.fx {
                 let right = look.cross(V3::UP).norm_or(v3(1.0, 0.0, 0.0));

@@ -8,6 +8,7 @@
 //   night=1   the stage's light instead of a studio's
 
 import * as THREE from "three";
+import { buildDemon } from "./model/demon";
 import { buildMage } from "./model/mage";
 import { buildKnight } from "./model/knight";
 import { SkinModel } from "./model/sdf";
@@ -27,6 +28,9 @@ export async function preview(q: URLSearchParams, canvas: HTMLCanvasElement) {
     kind = Number(name.slice(6)) || 1;
     model = buildKnight(kind, sim.bind(kind), { cell: cells?.[0] ?? 0.024, inflate: Number(q.get("inflate") ?? 0), trims: !q.has("plain") });
     size = 1.75;
+  } else if (name === "demon") {
+    kind = FIGURE.DEMON;
+    model = buildDemon(sim.bind(FIGURE.DEMON), cells);
   } else {
     kind = FIGURE.MAGE;
     model = buildMage(sim.bind(FIGURE.MAGE), cells);

@@ -25,7 +25,8 @@ pub fn skin(s: &Sim) -> [M34; BONES] {
             ..stand
         }
     } else {
-        Key { side: 0.03 * sin(t * 0.8), hip: v3(0.012 * sin(t * 0.8), 0.0, 0.0), head: [0.06 * sin(t * 0.5), -0.06], prop_w: 0.0, arm_r: [0.05, 0.2, 0.35, 0.0], arm_l: [2.0 + 0.04 * sin(t * 1.3), 0.5, 0.75, 0.0], ..stand }
+        Key { side: 0.03 * sin(t * 0.8), hip: v3(0.012 * sin(t * 0.8), 0.0, 0.0), head: [0.06 * sin(t * 0.5), -0.06], prop_w: 0.0, arm_r: [0.05, 0.2, 0.35, 0.0], // Raised past the shoulder, a limb's spread turns the other way: negative carries it outward.
+        arm_l: [2.15 + 0.04 * sin(t * 1.3), -0.5, 0.55, 0.0], ..stand }
     };
     let mut w = solve(&skel, &key);
     let (x, z, yaw) = s.stage.demon;

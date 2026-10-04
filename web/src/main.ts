@@ -11,6 +11,7 @@
 import * as THREE from "three";
 import { Hud } from "./game/hud";
 import { Input } from "./game/input";
+import { buildDemon } from "./model/demon";
 import { buildMage } from "./model/mage";
 import { buildKnight } from "./model/knight";
 import { characterMaterial } from "./render/character";
@@ -40,6 +41,8 @@ const shot = q.has("shot");
 const auto = q.has("auto");
 const fixed = q.get("view")?.split(",").map(Number);
 const chase = q.get("chase")?.split(",").map(Number);
+/** `demon=dx,dy,dz,fov`: a camera at that offset from the demon, looking at her. */
+const atDemon = q.get("demon")?.split(",").map(Number);
 const test = Number(q.get("test") ?? 0);
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: shot });
@@ -53,6 +56,7 @@ scene.fog = new THREE.FogExp2(new THREE.Color().setRGB(...SCENE.fog), SCENE.fogD
 let sim: Sim;
 let view: WorldView | null = null;
 let counts: Record<string, number> = {};
+let demonAt: [number, number, number] | null = null;
 if (test > 0) {
   sim = await Sim.load(await fetch("/sim/requiem_sim.wasm"), null, test);
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(800, 800), new THREE.MeshLambertMaterial({ color: new THREE.Color().setRGB(0.09, 0.09, 0.07) }));
@@ -63,6 +67,7 @@ if (test > 0) {
   const gen = generate(seed);
   counts = { ...gen.counts, knights: gen.knights, obstacles: gen.obstacles.length };
   sim = await Sim.load(await fetch("/sim/requiem_sim.wasm"), writeWorldFile(gen));
+  demonAt = [gen.stage.demon[0], sim.height(gen.stage.demon[0], gen.stage.demon[1]), gen.stage.demon[1]];
   view = new WorldView(gen.meshes, atlasTexture(paintAtlas(seed)));
   scene.add(view.group);
 }
@@ -70,6 +75,8 @@ if (test > 0) {
 // The mage, and the three kinds of knight at two levels of detail.
 const mage = new Skinned(buildMage(sim.bind(FIGURE.MAGE)), characterMaterial());
 scene.add(mage.mesh);
+const demon = new Skinned(buildDemon(sim.bind(FIGURE.DEMON)), characterMaterial());
+scene.add(demon.mesh);
 const kinds = [FIGURE.KNIGHT_SWORD, FIGURE.KNIGHT_HALBERD, FIGURE.KNIGHT_GREAT];
 const crowd = new CrowdView(
   sim,
@@ -137,6 +144,11 @@ function draw() {
     camera.up.set(0, 1, 0);
     camera.lookAt(fixed[3], fixed[4], fixed[5]);
     camera.fov = fixed[6] ?? 58;
+  } else if (atDemon && atDemon.length >= 3 && demonAt) {
+    camera.position.set(demonAt[0] + atDemon[0], demonAt[1] + atDemon[1], demonAt[2] + atDemon[2]);
+    camera.up.set(0, 1, 0);
+    camera.lookAt(demonAt[0], demonAt[1] + 1.0, demonAt[2]);
+    camera.fov = atDemon[3] ?? 45;
   } else if (chase && chase.length >= 3) {
     camera.position.set(s[SNAP.POS] + chase[0], s[SNAP.POS + 1] + chase[1], s[SNAP.POS + 2] + chase[2]);
     camera.up.set(0, 1, 0);
@@ -159,6 +171,7 @@ function draw() {
   frustum.planes.forEach((p, k) => planes.set([p.normal.x, p.normal.y, p.normal.z, p.constant], k * 4));
   crowd.update(sim.crowd(planes, [camera.position.x, camera.position.y, camera.position.z], Number(q.get("far") ?? 420)));
   mage.skin(s.subarray(SNAP.SKIN));
+  demon.skin(sim.demon());
   setLights(s);
   for (let k = 0; k < LIGHTS; k++) {
     const o = SNAP.LIGHTS + k * 8;

@@ -11,8 +11,8 @@ export const SCENE = {
   sunDir: [-0.3035, 0.4067, -0.8617] as const,
   sun: [0.5, 0.66, 1.0] as const,
   /** Ambient from straight up and from straight down. */
-  sky: [0.085, 0.15, 0.4] as const,
-  bounce: [0.02, 0.036, 0.085] as const,
+  sky: [0.1, 0.18, 0.46] as const,
+  bounce: [0.026, 0.045, 0.1] as const,
   /** Haze: colour and the density of `1 - exp(-(d × density)²)`. */
   fog: [0.016, 0.06, 0.25] as const,
   fogDensity: 0.0021,
