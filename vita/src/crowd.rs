@@ -30,7 +30,7 @@ pub struct Stats {
     pub shown: u32,
     pub draws: u32,
     pub tris: u32,
-    pub by_lod: [u32; 4],
+    pub by_lod: [u32; 5],
 }
 
 pub struct Crowd {
@@ -76,12 +76,13 @@ impl Crowd {
         CAPACITY * core::mem::size_of::<CrowdInstance>() + 64
     }
 
-    /// Draws every knight in view. The crowd's program, its uniforms and its state are bound by the caller.
+    /// Draws every knight in view. `bind(far)` binds the program for the near levels of detail (false) or for
+    /// the far ones (true) and writes its uniforms; it is called once for each that has knights.
     /// `scale` pulls the hand-over distances in (below 1) to shed load.
     ///
     /// # Safety
     /// Inside a scene on `ctx`; the ring segment is not in use by the GPU.
-    pub unsafe fn draw(&mut self, ctx: *mut g::SceGxmContext, sim: &Sim, planes: &[[f32; 4]; 6], eye: V3, ring: &mut Ring, scale: f32) -> Stats {
+    pub unsafe fn draw(&mut self, ctx: *mut g::SceGxmContext, sim: &Sim, planes: &[[f32; 4]; 6], eye: V3, ring: &mut Ring, scale: f32, far_from: usize, mut bind: impl FnMut(bool)) -> Stats {
         let mut stats = Stats::default();
         sim.crowd.draw(&sim.field, sim.tick, planes, eye, self.far * scale, &mut self.draws);
         self.order.clear();
@@ -94,9 +95,9 @@ impl Crowd {
                     break;
                 }
             }
-            stats.by_lod[lod.min(3)] += 1;
-            let mesh = (d.kind as usize).min(2) * self.lods + lod;
-            self.order.push(((mesh as u32) << 14 | (d.a as u32) << 7 | d.b as u32, i as u32));
+            stats.by_lod[lod.min(4)] += 1;
+            // Level first, so the draws of one program are together.
+            self.order.push(((lod as u32) << 16 | (d.kind as u32).min(2) << 14 | (d.a as u32) << 7 | d.b as u32, i as u32));
         }
         let n = self.order.len();
         if n == 0 {
@@ -118,13 +119,20 @@ impl Crowd {
         }
         let stride = core::mem::size_of::<CrowdVertex>();
         let mut k = 0;
+        let mut bound: Option<bool> = None;
         while k < n {
             let key = self.order[k].0;
             let mut e = k + 1;
             while e < n && self.order[e].0 == key {
                 e += 1;
             }
-            let m = &self.meshes[(key >> 14) as usize];
+            let lod = (key >> 16) as usize;
+            let far = lod >= far_from;
+            if bound != Some(far) {
+                bind(far);
+                bound = Some(far);
+            }
+            let m = &self.meshes[((key >> 14) & 3) as usize * self.lods + lod];
             let (a, b) = (((key >> 7) & 127) as usize, (key & 127) as usize);
             g::sceGxmSetVertexStream(ctx, 0, m.frames.add(a * m.vtx_count * stride).cast());
             g::sceGxmSetVertexStream(ctx, 1, m.frames.add(b * m.vtx_count * stride).cast());

@@ -215,6 +215,8 @@ struct Settings {
     mage: bool,
     /// Scales the distances at which the army's levels of detail hand over.
     crowd_scale: f32,
+    /// The first level of detail drawn with the far program.
+    far_from: usize,
     /// Display refreshes per frame: 2 is thirty frames a second.
     pace: i32,
     look: Look,
@@ -240,6 +242,9 @@ fn apply_control(v: &Value, s: &mut Settings, sim: &mut Sim) {
     }
     if let Some(x) = v["crowdScale"].as_f64() {
         s.crowd_scale = (x as f32).clamp(0.1, 4.0);
+    }
+    if let Some(x) = v["farFrom"].as_u64() {
+        s.far_from = x as usize;
     }
     if let Some(x) = v["pace"].as_i64() {
         s.pace = (x as i32).clamp(1, 4);
@@ -388,6 +393,19 @@ fn main() {
                 ],
                 msaa.gxm(),
             )?;
+            let crowd_far_prog = gpu.program_streams(
+                "crowd_far",
+                &format!("{defines}#define FAR\n"),
+                CROWD_V,
+                COLOR_F,
+                &[
+                    Stream { stride: 12, instanced: false, attrs: &fa },
+                    Stream { stride: 12, instanced: false, attrs: &fb },
+                    Stream { stride: 4, instanced: false, attrs: &[("aColor", 0, U8N, 4)] },
+                    Stream { stride: 20, instanced: true, attrs: &[("iPos", 0, F32, 3), ("iTurn", 12, S16N, 2), ("iMisc", 16, U8N, 4)] },
+                ],
+                msaa.gxm(),
+            )?;
             let hud_prog = gpu.program("hud", &defines, HUD_V, HUD_F, &Layout { attrs: &[("aPosition", 0, F32, 2), ("aUv", 8, F32, 2), ("aColor", 16, U8N, 4)], stride: 20 }, 0)?;
             let mut vram = Arena::new(Kind::Cdram, 16 * 1024 * 1024);
             let mut targets = Arena::new(Kind::Main, 4 * 1024 * 1024);
@@ -402,9 +420,9 @@ fn main() {
             let crowd = Crowd::load(&p, &scene.crowd_reach)?;
             let figures = Figures::load(&p, &scene)?;
             let sim = requiem_sim::worldfile::load(p.section(pack::SIMW)?).map_err(|e| e.to_string())?;
-            Ok((meta, scene, gpu, world_prog, color_prog, skin_prog, crowd_prog, hud_prog, world, hud, sim, crowd, figures, vram, post, targets))
+            Ok((meta, scene, gpu, world_prog, color_prog, skin_prog, crowd_prog, crowd_far_prog, hud_prog, world, hud, sim, crowd, figures, vram, post, targets))
         })();
-        let (meta, scene, gpu, world_prog, color_prog, skin_prog, crowd_prog, hud_prog, world, mut hud, mut sim, mut crowd, mut figures, vram, mut post, _targets) = match loaded {
+        let (meta, scene, gpu, world_prog, color_prog, skin_prog, crowd_prog, crowd_far_prog, hud_prog, world, mut hud, mut sim, mut crowd, mut figures, vram, mut post, _targets) = match loaded {
             Ok(x) => x,
             Err(e) => fail(font, &mut dev, &mut frame_no, e),
         };
@@ -413,6 +431,7 @@ fn main() {
         let load_ms = t_load.elapsed().as_millis() as u64;
         let skin_lit = Lit::of(&skin_prog);
         let crowd_lit = Lit::of(&crowd_prog);
+        let crowd_far_lit = Lit::of(&crowd_far_prog);
 
         let ring_bytes = Figures::frame_bytes() + Crowd::frame_bytes() + Hud::VERTEX_BYTES + 4096;
         let mut ring = match Ring::new(ring_bytes, 2) {
@@ -421,7 +440,7 @@ fn main() {
         };
         let mut fence = Fence::new(0, 2);
         let control = if live { control_watcher() } else { mpsc::channel().1 };
-        let mut set = Settings { auto: true, hud: true, stats: live, cull_cw: true, profile: false, lod_near: scene.lod_near, lod_mid: scene.lod_mid, world: true, crowd: true, mage: true, crowd_scale: 1.0, pace: boot["pace"].as_i64().unwrap_or(2) as i32, look: Look::DEFAULT, view: None };
+        let mut set = Settings { auto: true, hud: true, stats: live, cull_cw: true, profile: false, lod_near: scene.lod_near, lod_mid: scene.lod_mid, world: true, crowd: true, mage: true, crowd_scale: 1.0, far_from: 2, pace: boot["pace"].as_i64().unwrap_or(2) as i32, look: Look::DEFAULT, view: None };
 
         // Sound: the synthesizer renders at 22.05 kHz; the host module doubles it for the port.
         let mut synth = requiem_sim::audio::Synth::new();
@@ -566,10 +585,12 @@ fn main() {
             }
             if set.crowd {
                 let tc = Instant::now();
-                crowd_prog.bind(ctx, false);
                 gpu::state_opaque(ctx, set.cull_cw);
-                crowd_lit.set(ctx, &vp, &[], &light, &cast, eye, scene.fog_density);
-                cstats = crowd.draw(ctx, &sim, &planes, eye, &mut ring, set.crowd_scale);
+                cstats = crowd.draw(ctx, &sim, &planes, eye, &mut ring, set.crowd_scale, set.far_from, |far| {
+                    let (prog, lit) = if far { (&crowd_far_prog, &crowd_far_lit) } else { (&crowd_prog, &crowd_lit) };
+                    prog.bind(ctx, false);
+                    lit.set(ctx, &vp, &[], &light, &cast, eye, scene.fog_density);
+                });
                 crowd_ms = crowd_ms * 0.9 + tc.elapsed().as_secs_f32() * 100.0;
                 if cstats.shown > most.0 {
                     most = (cstats.shown, cstats.tris);

@@ -30,6 +30,8 @@ const DISCS: usize = 160;
 const SKY_SEGS: usize = 24;
 const SKY_RINGS: usize = 13;
 const STARS: usize = 420;
+/// Rim vertices of the moon's fans: it is drawn large, so its edge needs more than a shadow's.
+const MOON_FAN: usize = 40;
 
 /// Scene constants from the pack's META.
 pub struct Scene {
@@ -199,6 +201,7 @@ pub struct Figures {
     sky_idx: u32,
     /// The moon: its halo, its disc and its seas, as fans.
     moon_vb: *const u8,
+    moon_ib: *const u16,
     moon_fans: u32,
     star_vb: *const u8,
     mage: SkinMesh,
@@ -217,8 +220,8 @@ impl Figures {
         let sky_verts = SKY_RINGS * SKY_SEGS;
         let sky_idx = (SKY_RINGS - 1) * SKY_SEGS * 6;
         const MOON_FANS: usize = 7;
-        let fans = DISCS.max(MOON_FANS);
-        let size = modl.len() + count as usize * 64 + (sky_verts + MOON_FANS * (FAN + 1) + STARS * 4) * 16 + (sky_idx + QUADS * 6 + fans * FAN * 3) * 2 + 1024;
+        let fans = DISCS;
+        let size = modl.len() + count as usize * 64 + (sky_verts + MOON_FANS * (MOON_FAN + 1) + STARS * 4) * 16 + (sky_idx + QUADS * 6 + fans * FAN * 3 + MOON_FANS * MOON_FAN * 3) * 2 + 1024;
         let mut block = Block::with_access(Kind::Main, size, false)?;
         let mut alloc = |bytes: usize| block.alloc(bytes, 16).ok_or("figure geometry block".to_string());
 
@@ -271,17 +274,17 @@ impl Figures {
             }
         }
         // The moon, drawn large: a halo, the disc, and five seas on it.
-        let moon_vb = alloc(MOON_FANS * (FAN + 1) * 16)?.cast::<ColorVertex>();
+        let moon_vb = alloc(MOON_FANS * (MOON_FAN + 1) * 16)?.cast::<ColorVertex>();
         let ax = scene.sun_dir.cross(V3::UP).norm_or(v3(1.0, 0.0, 0.0));
         let ay = ax.cross(scene.sun_dir);
         let r0 = scene.moon_radius * 1900.0;
         let m = scene.moon;
         let mut fan = |d: usize, c: V3, radius: f32, inner: [u8; 4], outer: [u8; 4]| {
-            *moon_vb.add(d * (FAN + 1)) = ColorVertex { pos: [c.x, c.y, c.z], color: inner };
-            for t in 0..FAN {
-                let a = t as f32 / FAN as f32 * TAU;
+            *moon_vb.add(d * (MOON_FAN + 1)) = ColorVertex { pos: [c.x, c.y, c.z], color: inner };
+            for t in 0..MOON_FAN {
+                let a = t as f32 / MOON_FAN as f32 * TAU;
                 let q = c + ax * (cos(a) * radius) + ay * (sin(a) * radius);
-                *moon_vb.add(d * (FAN + 1) + 1 + t) = ColorVertex { pos: [q.x, q.y, q.z], color: outer };
+                *moon_vb.add(d * (MOON_FAN + 1) + 1 + t) = ColorVertex { pos: [q.x, q.y, q.z], color: outer };
             }
         };
         let centre = scene.sun_dir * 1900.0;
@@ -325,6 +328,15 @@ impl Figures {
                 *quad_ib.add(q * 6 + j) = b + o;
             }
         }
+        let moon_ib = alloc(MOON_FANS * MOON_FAN * 6)?.cast::<u16>();
+        for d in 0..MOON_FANS {
+            let b = (d * (MOON_FAN + 1)) as u16;
+            for t in 0..MOON_FAN {
+                *moon_ib.add((d * MOON_FAN + t) * 3) = b;
+                *moon_ib.add((d * MOON_FAN + t) * 3 + 1) = b + 1 + t as u16;
+                *moon_ib.add((d * MOON_FAN + t) * 3 + 2) = b + 1 + ((t + 1) % MOON_FAN) as u16;
+            }
+        }
         let fan_ib = alloc(fans * FAN * 6)?.cast::<u16>();
         for d in 0..fans {
             let b = (d * (FAN + 1)) as u16;
@@ -335,7 +347,7 @@ impl Figures {
             }
         }
 
-        Ok(Figures { _block: block, sky_vb: sky_vb.cast(), sky_ib, sky_idx: sky_idx as u32, moon_vb: moon_vb.cast(), moon_fans: MOON_FANS as u32, star_vb: star_vb.cast(), mage, quad_ib, fan_ib })
+        Ok(Figures { _block: block, sky_vb: sky_vb.cast(), sky_ib, sky_idx: sky_idx as u32, moon_vb: moon_vb.cast(), moon_ib, moon_fans: MOON_FANS as u32, star_vb: star_vb.cast(), mage, quad_ib, fan_ib })
     }
 
     /// Bytes `update` takes from the ring.
@@ -398,7 +410,7 @@ impl Figures {
         prog.bind(ctx, true);
         prog.uniforms(ctx, &m, 0.0);
         gpu::draw(ctx, self.star_vb, self.quad_ib, (STARS * 6) as u32);
-        gpu::draw(ctx, self.moon_vb, self.fan_ib, self.moon_fans * (FAN * 3) as u32);
+        gpu::draw(ctx, self.moon_vb, self.moon_ib, self.moon_fans * (MOON_FAN * 3) as u32);
     }
 
     /// The mage. Returns her triangles.

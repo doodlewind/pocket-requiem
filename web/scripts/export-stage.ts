@@ -12,7 +12,7 @@
 import { mkdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { buildMage } from "../src/model/mage";
-import { buildKnight, KnightDetail } from "../src/model/knight";
+import { buildKnight, buildKnightFar, KnightDetail } from "../src/model/knight";
 import { SKIN_STRIDE, SkinModel } from "../src/model/sdf";
 import { skyColor } from "../src/render/sky";
 import { FIGURE, KNIGHT_FRAMES } from "../src/sim/abi.gen";
@@ -31,13 +31,12 @@ const arg = (name: string, dflt: string) => {
 const seed = Number(arg("seed", "2026"));
 const out = resolve(arg("out", join(import.meta.dir, "../../.pocket-build/stage/ir")));
 
-/** A knight's levels of detail, nearest first. A device profile says at what distance each takes over. */
-const KNIGHT_LODS: KnightDetail[] = [
-  { cell: 0.026, trims: true },
-  { cell: 0.046, inflate: 0.004 },
-  { cell: 0.085, inflate: 0.016 },
-  { cell: 0.16, inflate: 0.034 },
-];
+/**
+ * A knight's levels of detail, nearest first: three densities of the modelled
+ * figure, then two built of boxes for the far ranks. A device profile says
+ * which it packs and at what distance each takes over.
+ */
+const KNIGHT_LODS: (KnightDetail | "boxes" | "block")[] = [{ cell: 0.031, trims: true }, { cell: 0.058, inflate: 0.006 }, { cell: 0.11, inflate: 0.022 }, "boxes", "block"];
 
 function meshBytes(header: number[], entries: { head: number[]; geo: Geo }[]): Uint8Array {
   let size = header.length * 4;
@@ -103,12 +102,12 @@ const buckets = gen.meshes.sorted().filter((b) => b.geo.ni > 0);
 // Models are built on the simulation's bind poses. The mage is model 0; a knight of kind k at level l is model 100 k + l.
 const wasm = await Bun.file(join(import.meta.dir, "../public/sim/requiem_sim.wasm")).arrayBuffer();
 const sim = await Sim.load(wasm, null, 0);
-const models: { id: number; model: SkinModel }[] = [{ id: 0, model: buildMage(sim.bind(FIGURE.MAGE)) }];
+const models: { id: number; model: SkinModel }[] = [{ id: 0, model: buildMage(sim.bind(FIGURE.MAGE), [0.0155, 0.009]) }];
 const knightStats: Record<string, number[]> = {};
 for (const kind of [FIGURE.KNIGHT_SWORD, FIGURE.KNIGHT_HALBERD, FIGURE.KNIGHT_GREAT]) {
   knightStats[kind] = [];
   KNIGHT_LODS.forEach((detail, lod) => {
-    const model = buildKnight(kind, sim.bind(kind), detail);
+    const model = typeof detail === "string" ? buildKnightFar(kind, sim.bind(kind), detail === "boxes") : buildKnight(kind, sim.bind(kind), detail);
     models.push({ id: kind * 100 + lod, model });
     knightStats[kind].push(model.i.length / 3);
   });

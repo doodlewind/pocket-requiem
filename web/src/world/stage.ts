@@ -90,7 +90,7 @@ function terrain(x: number, z: number, seed: number): number {
   h += rim * rim * (58 + 40 * fbm(x / 300, z / 300, seed + 17, 3));
   // The rise the demon stands on.
   const dx = x;
-  const dz = z + 330;
+  const dz = z + 384;
   h += 7.5 * Math.exp(-(dx * dx + dz * dz) / (2 * 80 * 80));
   // A dry stream bed down the east side.
   const sd = x - streamX(z);
@@ -110,7 +110,7 @@ function forest(x: number, z: number, seed: number): number {
 
 /** True where the army forms up and fights: nothing stands there. */
 function battleground(x: number, z: number): boolean {
-  return Math.abs(x) < 228 && z > -430 && z < 640;
+  return Math.abs(x) < 232 && z > -470 && z < 640;
 }
 
 const GRASS: Rgb = [0.5, 0.52, 0.38];
@@ -515,20 +515,20 @@ export function generate(seed: number): Generated {
     obstacles.push({ x, z, r: h * 0.05 + 0.2, kind: 1 });
   }
 
-  // ---- the army: cohorts in nine files across the field, facing south
+  // ---- the army: cohorts in eleven files across the field, twelve deep, facing south
   const musters: Muster[] = [];
   const mr = new Rng(seed ^ 0xa11a);
-  for (let row = 0; row < 9; row++) {
-    for (let col = 0; col < 9; col++) {
-      const x = (col - 4) * 44 + mr.range(-5, 5);
-      const z = 392 - row * 78 + mr.range(-9, 9);
+  for (let row = 0; row < 12; row++) {
+    for (let col = 0; col < 11; col++) {
+      const x = (col - 5) * 38 + mr.range(-4, 4);
+      const z = 392 - row * 62 + mr.range(-7, 7);
       const wide = mr.chance(0.3);
       musters.push({ x, z, yaw: Math.PI + mr.range(-0.05, 0.05), spacing: mr.range(1.75, 2.05), cols: wide ? 8 : 6, rows: wide ? 4 : 5, mix: mr.pick([0, 0, 1, 1, 2, 3, 3, 3]), captain: 1 });
     }
   }
   // The demon's guard: greatswords, in front of her.
-  musters.push({ x: 0, z: -300, yaw: Math.PI, spacing: 2.1, cols: 9, rows: 3, mix: 2, captain: 1 });
-  const stage: Stage = { start: [0, 520, 0], demon: [0, -332, Math.PI], gate: [0, 900], town: [0, 9000, 10], half: HALF, musters };
+  musters.push({ x: 0, z: -352, yaw: Math.PI, spacing: 2.1, cols: 9, rows: 3, mix: 2, captain: 1 });
+  const stage: Stage = { start: [0, 520, 0], demon: [0, -384, Math.PI], gate: [0, 900], town: [0, 9000, 10], half: HALF, musters };
   const knights = musters.reduce((s, m) => s + m.cols * m.rows, 0);
   return { meshes: b.meshes, col: b.col, field: b.field, obstacles, stage, knights, counts: b.counts };
 }

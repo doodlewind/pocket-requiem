@@ -35,9 +35,17 @@ void main(
     float4 clip = mul(uMvp, float4(world, 1.0));
     oPosition = clip;
 
-    float3 toEye = normalize(uEye.xyz - world);
     float facing = dot(wn, uLight[0].xyz);
     float3 light = uLight[1].xyz * max(facing, 0.0) + lerp(uLight[3].xyz, uLight[2].xyz, 0.5 + 0.5 * wn.y);
+#ifdef FAR
+    // Far ranks: the moon, the sky, and the one strongest light a spell casts.
+    float3 d0 = uCast[0].xyz - world;
+    float att0 = max(1.0 - dot(d0, d0) * uCast[0].w, 0.0);
+    light += uCast[1].xyz * (att0 * att0);
+    float3 encoded = sqrt(light);
+    oColor = float4(aColor.rgb * encoded + float3(0.55, 0.62, 0.7) * iMisc.y, 1.0);
+#else
+    float3 toEye = normalize(uEye.xyz - world);
     for (int k = 0; k < 4; k++) {
         float3 d = uCast[k * 2].xyz - world;
         float att = max(1.0 - dot(d, d) * uCast[k * 2].w, 0.0);
@@ -51,6 +59,7 @@ void main(
     float3 encoded = pow(max(light, float3(0.0001, 0.0001, 0.0001)), float3(0.4545, 0.4545, 0.4545));
     float3 gleam = pow(max(shine, float3(0.0001, 0.0001, 0.0001)), float3(0.4545, 0.4545, 0.4545));
     oColor = float4(aColor.rgb * encoded + gleam * 0.8 + float3(0.55, 0.62, 0.7) * iMisc.y, 1.0);
+#endif
     float d = clip.w * uEye.w;
     oFog = 1.0 - exp(-d * d);
 }
