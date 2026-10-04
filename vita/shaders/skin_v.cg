@@ -1,0 +1,56 @@
+// Skinned models: the mage and the demon. Two bones per vertex; uBones holds
+// three rows per bone, taking a bind-pose position to world space. The light
+// is the look of the animation at night: a lit tone and a shaded tone that
+// meet at a narrow edge, a rim of moonlight, and what the spells cast.
+//
+// uLight: 0 the moon's direction (w: how much of it reaches her), 1 its colour, 2 sky, 3 ground bounce.
+// uCast: per light, its place with 1 / radius² in w, then its colour.
+// uEye: the eye, with the haze density in w.
+
+void main(
+    float3 aPosition,
+    float4 aNormal,
+    float4 aColor,
+    float2 aBones,
+    float2 aWeights,
+    uniform float4x4 uMvp,
+    uniform float4 uBones[3 * BONES],
+    uniform float4 uLight[4],
+    uniform float4 uCast[8],
+    uniform float4 uEye,
+    out float4 oPosition : POSITION,
+    out float4 oColor : TEXCOORD0,
+    out float oFog : TEXCOORD1)
+{
+    float4 p = float4(aPosition, 1.0);
+    float3 world = float3(0.0, 0.0, 0.0);
+    float3 n = float3(0.0, 0.0, 0.0);
+    for (int k = 0; k < 2; k++) {
+        int j = (int)aBones[k] * 3;
+        float w = aWeights[k];
+        float4 r0 = uBones[j];
+        float4 r1 = uBones[j + 1];
+        float4 r2 = uBones[j + 2];
+        world += float3(dot(r0, p), dot(r1, p), dot(r2, p)) * w;
+        n += float3(dot(r0.xyz, aNormal.xyz), dot(r1.xyz, aNormal.xyz), dot(r2.xyz, aNormal.xyz)) * w;
+    }
+    n = normalize(n);
+    float4 clip = mul(uMvp, float4(world, 1.0));
+    oPosition = clip;
+
+    float3 toEye = normalize(uEye.xyz - world);
+    float facing = dot(n, uLight[0].xyz);
+    float lit = smoothstep(-0.04, 0.1, facing) * uLight[0].w;
+    float3 light = uLight[2].xyz * 2.1 + uLight[3].xyz + uLight[1].xyz * (1.15 * lit);
+    for (int i = 0; i < 4; i++) {
+        float3 d = uCast[i * 2].xyz - world;
+        float att = max(1.0 - dot(d, d) * uCast[i * 2].w, 0.0);
+        light += uCast[i * 2 + 1].xyz * (att * att * (0.36 + 0.84 * max(dot(n, normalize(d)), 0.0)));
+    }
+    float rim = pow(1.0 - max(dot(n, toEye), 0.0), 3.5) * smoothstep(-0.2, 0.5, facing);
+    float3 encoded = pow(max(light, float3(0.0001, 0.0001, 0.0001)), float3(0.4545, 0.4545, 0.4545));
+    float3 gleam = pow(max(uLight[1].xyz * (rim * 0.55), float3(0.0001, 0.0001, 0.0001)), float3(0.4545, 0.4545, 0.4545));
+    oColor = float4(aColor.rgb * encoded + gleam * 0.7, 1.0);
+    float d = clip.w * uEye.w;
+    oFog = 1.0 - exp(-d * d);
+}

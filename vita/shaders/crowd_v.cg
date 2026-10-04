@@ -1,0 +1,56 @@
+// The army. A knight has no bones here: the compiler placed every vertex at
+// every stored frame of every clip. A draw binds two frames as two streams
+// and a third stream of one record per knight; the program blends the frames
+// by that knight's blend, turns the result to its heading and sets it at its
+// place. Every knight showing the same two frames is in the same draw.
+//
+// uLight: 0 the moon's direction, 1 its colour, 2 sky, 3 ground bounce.
+// uCast: per light, its place with 1 / radius² in w, then its colour.
+// uEye: the eye, with the haze density in w.
+
+void main(
+    float3 aPosA,
+    float4 aNrmA,
+    float3 aPosB,
+    float4 aNrmB,
+    float4 aColor,
+    float3 iPos,
+    float2 iTurn,
+    float4 iMisc,
+    uniform float4x4 uMvp,
+    uniform float4 uLight[4],
+    uniform float4 uCast[8],
+    uniform float4 uEye,
+    out float4 oPosition : POSITION,
+    out float4 oColor : TEXCOORD0,
+    out float oFog : TEXCOORD1)
+{
+    float t = iMisc.x;
+    float3 p = lerp(aPosA, aPosB, t) * (POS_SCALE * (1.0 + iMisc.z));
+    float3 n = normalize(lerp(aNrmA.xyz, aNrmB.xyz, t));
+    float s = iTurn.x;
+    float c = iTurn.y;
+    float3 world = float3(p.x * c + p.z * s, p.y, p.z * c - p.x * s) + iPos;
+    float3 wn = float3(n.x * c + n.z * s, n.y, n.z * c - n.x * s);
+    float4 clip = mul(uMvp, float4(world, 1.0));
+    oPosition = clip;
+
+    float3 toEye = normalize(uEye.xyz - world);
+    float facing = dot(wn, uLight[0].xyz);
+    float3 light = uLight[1].xyz * max(facing, 0.0) + lerp(uLight[3].xyz, uLight[2].xyz, 0.5 + 0.5 * wn.y);
+    for (int k = 0; k < 4; k++) {
+        float3 d = uCast[k * 2].xyz - world;
+        float att = max(1.0 - dot(d, d) * uCast[k * 2].w, 0.0);
+        light += uCast[k * 2 + 1].xyz * (att * att * (0.3 + 0.7 * max(dot(wn, normalize(d)), 0.0)));
+    }
+    // Plate: a highlight off the moon, and a rim against the sky.
+    float3 h = normalize(uLight[0].xyz + toEye);
+    float spec = pow(max(dot(wn, h), 0.0), 36.0) * aColor.a;
+    float rim = pow(1.0 - max(dot(wn, toEye), 0.0), 3.0) * (0.675 + 0.325 * facing);
+    float3 shine = uLight[1].xyz * (spec * 0.9 + rim * 0.22 * aColor.a) + uLight[2].xyz * (rim * 0.5);
+    float3 encoded = pow(max(light, float3(0.0001, 0.0001, 0.0001)), float3(0.4545, 0.4545, 0.4545));
+    float3 gleam = pow(max(shine, float3(0.0001, 0.0001, 0.0001)), float3(0.4545, 0.4545, 0.4545));
+    oColor = float4(aColor.rgb * encoded + gleam * 0.8 + float3(0.55, 0.62, 0.7) * iMisc.y, 1.0);
+    float d = clip.w * uEye.w;
+    oFog = 1.0 - exp(-d * d);
+}

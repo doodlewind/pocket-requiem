@@ -1,0 +1,14 @@
+[workspace]
+resolver = "2"
+members = ["crates/requiem-sim", "crates/requiem-pack", "crates/requiem-cook"]
+# The device apps build with their own toolchains and lockfiles.
+exclude = ["vita", "psp", "n3ds", "vendor"]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[profile.dev]
+opt-level = 1
