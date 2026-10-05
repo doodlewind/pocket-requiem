@@ -1,0 +1,28 @@
+[package]
+name = "pocket-requiem-psp"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Pocket Requiem on PSP: the GE renderer, on-demand cells and the device loop"
+
+# cargo-psp builds a lone crate.
+[workspace]
+
+[dependencies]
+psp = { git = "https://github.com/pocket-nexus/rust-psp.git", rev = "2cbaf8c9bc72569c76240a1d9743de10731e5f6b", features = ["abort-only", "external-global-alloc"] }
+# The Allegrex FPU has no doubles: single-precision kernels and its own square root.
+requiem-sim = { path = "../crates/requiem-sim", default-features = false, features = ["hw-sqrt", "single-float"] }
+requiem-pack = { path = "../crates/requiem-pack", default-features = false }
+requiem-handheld = { path = "../crates/requiem-handheld", default-features = false }
+libm = "0.2"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
+# Everything at opt-level 3. A frame's time is in a few loops (the army's tick, the knights' list, the
+# effects' vertices), and built for size they do not inline their arithmetic: the army's tick took a third
+# longer. This crate must stay at 3 in any case: built for size, its calls to system functions with more
+# than four arguments pass the fifth one wrong (sceKernelCreateSema answers ILLEGAL_ADDR).

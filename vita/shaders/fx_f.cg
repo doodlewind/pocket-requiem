@@ -1,0 +1,9 @@
+// An effect's texel is how bright it is; its colour and strength come from the layer.
+
+uniform sampler2D uTex;
+
+half4 main(half4 vColor : TEXCOORD0, float2 vUv : TEXCOORD1) : COLOR
+{
+    half k = (half)tex2D(uTex, vUv).r * vColor.a;
+    return half4(vColor.rgb * k, k);
+}

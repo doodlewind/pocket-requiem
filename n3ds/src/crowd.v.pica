@@ -1,0 +1,124 @@
+; The army. A knight has no bones here: the compiler placed every vertex at
+; every stored frame of every clip. A draw binds two frames as two buffers;
+; this blends them by the knight's blend, turns the result to its heading and
+; sets it at its place. The light is the Vita program's for the far ranks: the
+; moon, the sky, and the two strongest lights the spells cast, encoded by a
+; square root; bare metal takes a constant gleam, and a struck knight a flash.
+.fvec projection[4]
+; x y z, and how far from the first frame to the second.
+.fvec place
+; sine and cosine of the heading, metres per position unit, the flash.
+.fvec turn
+; the moon's direction; its colour; sky; bounce.
+.fvec light[4]
+; per light: its place with 1 / radius^2 in w, then its colour.
+.fvec cast[4]
+.constf consts(1.0, 0.0078740157, 0.0039215686, 0.5)
+.constf more(0.0, 0.00001, 0.0, 0.0)
+.constf flashc(0.55, 0.62, 0.7, 0.0)
+.constf gleam(0.14, 0.17, 0.23, 0.0)
+.in posa v0
+.in nrma v1
+.in posb v2
+.in nrmb v3
+.in inclr v4
+.out outpos position
+.out outclr color
+.entry main
+.proc main
+    ; position: the two frames blended, scaled to metres. One instruction reads one input register,
+    ; so the first frame goes through a temporary.
+    mov r10.xyz, posa.xyz
+    add r0.xyz, posb.xyz, -r10.xyz
+    mul r0.xyz, place.www, r0.xyz
+    add r0.xyz, r10.xyz, r0.xyz
+    mul r0.xyz, turn.zzz, r0.xyz
+    ; normal: blended, unit length
+    mov r10.xyz, nrma.xyz
+    add r1.xyz, nrmb.xyz, -r10.xyz
+    mul r1.xyz, place.www, r1.xyz
+    add r1.xyz, r10.xyz, r1.xyz
+    dp3 r2.x, r1, r1
+    max r2.x, more.y, r2.x
+    rsq r2.x, r2.x
+    mul r1.xyz, r1.xyz, r2.xxx
+
+    ; turned to the heading: x' = x c + z s, z' = z c - x s
+    mul r3.x, turn.y, r0.x
+    mul r3.y, turn.x, r0.z
+    mul r3.z, turn.y, r0.z
+    mul r3.w, turn.x, r0.x
+    add r4.x, r3.x, r3.y
+    add r4.z, r3.z, -r3.w
+    mov r4.y, r0.y
+    add r4.xyz, place.xyz, r4.xyz
+    mov r4.w, consts.x
+    dp4 outpos.x, projection[0], r4
+    dp4 outpos.y, projection[1], r4
+    dp4 outpos.z, projection[2], r4
+    dp4 outpos.w, projection[3], r4
+
+    mul r3.x, turn.y, r1.x
+    mul r3.y, turn.x, r1.z
+    mul r3.z, turn.y, r1.z
+    mul r3.w, turn.x, r1.x
+    add r5.x, r3.x, r3.y
+    add r5.z, r3.z, -r3.w
+    mov r5.y, r1.y
+
+    ; the moon and the hemisphere
+    dp3 r6.x, light[0], r5
+    max r6.x, more.x, r6.x
+    mul r6.y, consts.w, r5.y
+    add r6.y, consts.w, r6.y
+    mov r7.xyz, light[3].xyz
+    mov r8.xyz, light[2].xyz
+    add r8.xyz, r8.xyz, -r7.xyz
+    mul r8.xyz, r6.yyy, r8.xyz
+    add r7.xyz, r7.xyz, r8.xyz
+    mov r8.xyz, light[1].xyz
+    mul r8.xyz, r6.xxx, r8.xyz
+    add r7.xyz, r7.xyz, r8.xyz
+
+    ; what the spells cast: (1 - d^2 / r^2)^2 of each light's colour
+    mov r9, cast[0]
+    add r8.xyz, r9.xyz, -r4.xyz
+    dp3 r8.w, r8, r8
+    mul r8.w, r9.w, r8.w
+    add r8.w, consts.x, -r8.w
+    max r8.w, more.x, r8.w
+    mul r8.w, r8.w, r8.w
+    mov r9.xyz, cast[1].xyz
+    mul r9.xyz, r8.www, r9.xyz
+    add r7.xyz, r7.xyz, r9.xyz
+    mov r9, cast[2]
+    add r8.xyz, r9.xyz, -r4.xyz
+    dp3 r8.w, r8, r8
+    mul r8.w, r9.w, r8.w
+    add r8.w, consts.x, -r8.w
+    max r8.w, more.x, r8.w
+    mul r8.w, r8.w, r8.w
+    mov r9.xyz, cast[3].xyz
+    mul r9.xyz, r8.www, r9.xyz
+    add r7.xyz, r7.xyz, r9.xyz
+
+    ; encoded: sqrt(x) = x * rsq(x)
+    max r7.xyz, more.yyy, r7.xyz
+    rsq r8.x, r7.x
+    rsq r8.y, r7.y
+    rsq r8.z, r7.z
+    mul r7.xyz, r7.xyz, r8.xyz
+
+    ; tint * light + gleam * metal + flash
+    mul r9, consts.zzzz, inclr
+    mul r7.xyz, r9.xyz, r7.xyz
+    mov r8.xyz, gleam.xyz
+    mul r8.xyz, r9.www, r8.xyz
+    add r7.xyz, r7.xyz, r8.xyz
+    mov r8.xyz, flashc.xyz
+    mul r8.xyz, turn.www, r8.xyz
+    add r7.xyz, r7.xyz, r8.xyz
+    mov r7.w, consts.x
+    mov outclr, r7
+    end
+.end

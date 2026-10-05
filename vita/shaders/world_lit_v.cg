@@ -1,0 +1,33 @@
+// The static world within reach of a spell's light. As world_v.cg, and the
+// baked colour is raised by what the spells cast on the vertex. The bake
+// stores tint x light, encoded; a light that adds `d` to a baked light of
+// about LIGHT_REF multiplies the encoded colour by sqrt(1 + d / LIGHT_REF).
+//
+// uBounds: 0 the mesh's least corner, 1 its size. uCast: per light, its
+// place with 1 / radius^2 in w, then its colour.
+
+void main(
+    float3 aPosition,
+    float2 aUv,
+    float4 aColor,
+    uniform float4x4 uMvp,
+    uniform float4 uBounds[2],
+    uniform float4 uCast[8],
+    out float4 oPosition : POSITION,
+    out float2 oUv : TEXCOORD0,
+    out float4 oColor : TEXCOORD1)
+{
+    float4 clip = mul(uMvp, float4(aPosition, 1.0));
+    oPosition = clip;
+    oUv = aUv * float2(UV_SCALE, 1.0);
+    float3 world = aPosition * uBounds[1].xyz + uBounds[0].xyz;
+    float3 cast = float3(0.0, 0.0, 0.0);
+    for (int k = 0; k < 4; k++) {
+        float3 d = uCast[k * 2].xyz - world;
+        float att = max(1.0 - dot(d, d) * uCast[k * 2].w, 0.0);
+        cast += uCast[k * 2 + 1].xyz * (att * att);
+    }
+    float3 gain = sqrt(float3(1.0, 1.0, 1.0) + cast * LIGHT_GAIN);
+    float d = clip.w * FOG_DENSITY;
+    oColor = float4(aColor.rgb * COLOR_SCALE * gain, 1.0 - exp(-d * d));
+}
