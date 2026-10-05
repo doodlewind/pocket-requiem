@@ -11,7 +11,9 @@ SOURCE := $(ROOT)/n3ds/src
 POCKET := $(ROOT)/vendor/pocketjs/hosts/3ds
 TITLE := $(ROOT)/vendor/pocketjs/engine/pocket3d/crates/pocket3d-title
 CORE := $(ROOT)/n3ds/core/target/armv6k-nintendo-3ds/release/librequiem_n3ds_core.a
-ICON := $(SOURCE)/../icon.png
+# The launcher's icon is Pocket3D's, in both sizes the SMDH holds: given one, smdhtool halves the large one.
+ICON := $(ROOT)/vendor/pocketjs/engine/pocket3d/icon/3ds/icon.png
+SMALL_ICON := $(ROOT)/vendor/pocketjs/engine/pocket3d/icon/3ds/icon-small.png
 OUT := $(ROOT)/dist/3ds/pocket-requiem.3dsx
 ROMFS := $(ROOT)/.pocket-build/3ds/romfs
 ARCH := -march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft
@@ -39,8 +41,8 @@ $(addprefix $(BUILD)/,$(WIRE)): $(BUILD)/%.o: $(POCKET)/src/%.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 $(BUILD)/requiem.elf: $(OBJECTS) $(CORE)
 	$(CC) $(LDFLAGS) $(OBJECTS) $(CORE) -L$(DEVKITPRO)/libctru/lib -L$(DEVKITPRO)/portlibs/3ds/lib -lcitro3d -lmbedcrypto -lctru -lm -o $@
-$(BUILD)/requiem.smdh: $(ICON) | $(BUILD)
-	$(DEVKITPRO)/tools/bin/smdhtool --create 'Pocket Requiem' 'A mage against an army, at night' 'Pocket Nexus' $< $@
+$(BUILD)/requiem.smdh: $(ICON) $(SMALL_ICON) | $(BUILD)
+	$(DEVKITPRO)/tools/bin/smdhtool --create 'Pocket Requiem' 'A mage against an army, at night' 'Pocket Nexus' $(ICON) $@ $(SMALL_ICON)
 $(OUT): $(BUILD)/requiem.elf $(BUILD)/requiem.smdh $(ROMFS)/world.pack
 	mkdir -p $(dir $@)
 	$(DEVKITPRO)/tools/bin/3dsxtool $< $@ --smdh=$(BUILD)/requiem.smdh --romfs=$(ROMFS)

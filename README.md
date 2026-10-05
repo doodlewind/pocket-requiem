@@ -20,7 +20,7 @@ The repository holds the whole path from authoring to hardware:
 - **`vita/`** draws the pack and runs the simulation at two ticks per frame.
 - **`crates/requiem-handheld`** is what the PSP and the 3DS share: the ground built from two grids, the army's draw list and its far ranks, the effects evaluated into vertices, the sky, the interface and the loop round the simulation. **`psp/`** and **`n3ds/`** are the two renderers over it.
 
-PocketJS (pinned in `vendor/pocketjs`) supplies the device toolchains, the dev hosts, the GXM kernel and packaging.
+PocketJS (pinned in `vendor/pocketjs`) supplies the device toolchains, the dev hosts, the GXM kernel, packaging and the app icon.
 
 ## The army: stored frames instead of skeletons
 
@@ -135,6 +135,18 @@ With the mage standing still for a minute and the army closed round her (`bun to
 
 The PSP's GE is the limit: with 12 000 triangles of knights' meshes and longer distances it finished 13 of 2 700 frames late, so the profile's distances and the knights' budget (10 500 triangles of meshes) are set below that; far figures are untextured and unlit and cost it little. The PSP uses 17.4 MB after loading. Its CPU needed the simulation 2.8 times faster than it was (18.5 ms a frame to 6.6 ms): knights on their feet step every other tick (every machine shows a frame per two ticks), the neighbour grid is 1 024 cells of 16 bits (the 4 096-cell tables were twice the PSP's data cache, walked every tick), and the synthesizer reads sines and decays from tables. Those changes are in `requiem-sim`, so the Vita's simulation went from 2.4 ms to 1.4 ms a frame.
 
+## In the launcher
+
+The icon in each console's launcher is **the Pocket3D icon, read from the PocketJS checkout** (`vendor/pocketjs/engine/pocket3d/icon/`) when the package is built. This repository holds no icon file; the launcher's title string, "Pocket Requiem", names the game.
+
+| Console | Where the build names the icon | File under `vendor/pocketjs/engine/pocket3d/icon/` |
+| --- | --- | --- |
+| PSP | `xmb_icon_png` in `psp/Psp.toml` | `psp/ICON0.PNG`, 144 × 80 |
+| PS Vita | `icon: POCKET3D_ICON.vita` in `tools/vita.ts`; the packager puts it at `sce_sys/icon0.png` | `vita/icon0.png`, 128 × 128, 8-bit indexed |
+| Nintendo 3DS | `ICON` and `SMALL_ICON` in `n3ds/Makefile`, both given to `smdhtool` | `3ds/icon.png`, 48 × 48, and `3ds/icon-small.png`, 24 × 24 |
+
+The pictures beside the icon are captures of this game. `psp/assets/pic1.png` (480 × 272) is the XMB's background. `vita/assets/sce_sys/livearea/contents/bg.png` (840 × 500) and `startup.png` (280 × 158) are the LiveArea's background and gate: `bun tools/livearea.ts` renders tick 900 of the autopilot's fight in the reference at two and four times those sizes, averages each down and writes it with a palette of 256 colours, the form the VPK packager requires.
+
 ## Controls
 
 | | Vita | PSP | 3DS | Keyboard |
@@ -160,6 +172,7 @@ bun tools/requiem.ts sim               # wasm + web/src/sim/abi.gen.ts
 bun tools/requiem.ts shot --out a.png [--auto --ticks 900] [--view px,py,pz,tx,ty,tz,fov] [--query "test=8&press=2:2"]
 bun tools/requiem.ts shot --out m.png --query "model=mage&poses=i:0@0,m1:10@40,m6:18@40"
 bun tools/requiem.ts cook [--no-export]
+bun tools/livearea.ts [--check]        # the Vita LiveArea pictures from the reference; --check runs the packager's rules on them
 
 # PS Vita
 bun tools/requiem.ts serve             # USB host for the console (keep running)
@@ -185,6 +198,7 @@ cargo run --release -p requiem-handheld --example probe -- .pocket-build/stage/t
 cargo run --release -p requiem-handheld --example siege -- .pocket-build/stage/the-field.n3ds30.pack 120   # she stands still
 
 cargo test --workspace
+bun test ./tools                       # launcher art: no icon file in this repository, every build reads PocketJS's
 cargo run --release -p requiem-sim --bin harness -- .pocket-build/stage/ir/stage.rqsw 120
 ```
 
@@ -209,7 +223,7 @@ Vita `ctl` keys: `auto`, `reset`, `view {pos, target, fov}`, `pace` (refreshes p
 | `psp/` | PSP app: the GE renderer, the PSPLINK mailbox |
 | `n3ds/` | 3DS app: C host and PICA programs (`src/`), the shared crate behind a C interface (`core/`) |
 | `profiles/` | compile profiles |
-| `tools/` | `requiem.ts`, `vita.ts`, `psp.ts`, `n3ds.ts`, `bench.ts`, `shot.ts` |
+| `tools/` | `requiem.ts`, `vita.ts`, `psp.ts`, `n3ds.ts`, `bench.ts`, `shot.ts`, `livearea.ts` |
 
 ## Not done
 

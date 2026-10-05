@@ -9,7 +9,7 @@
     "sim": "bun tools/requiem.ts sim",
     "dev": "bun tools/requiem.ts sim && bun run --cwd web dev",
     "typecheck": "bunx tsc --noEmit -p web",
-    "test": "cargo test --workspace"
+    "test": "cargo test --workspace && bun test ./tools"
   },
   "devDependencies": {
     "@types/bun": "^1.4.2",

@@ -66,7 +66,7 @@ async function build() {
   // that was just rewritten, on either side. The snapshot's name is new each build.
   const snapshot = `source-${buildId}-${Date.now()}.tar`;
   for (const f of readdirSync(DIR).filter((f) => f.startsWith("source-"))) rmSync(join(DIR, f));
-  await $`tar --no-xattrs -cf ${join(DIR, snapshot)} n3ds/src n3ds/Makefile n3ds/icon.png .pocket-build/3ds/build/config.h`.cwd(ROOT);
+  await $`tar --no-xattrs -cf ${join(DIR, snapshot)} n3ds/src n3ds/Makefile .pocket-build/3ds/build/config.h`.cwd(ROOT);
   await runContainer(
     `mkdir -p /tmp/source /tmp/build && tar -xf /requiem/.pocket-build/3ds/${snapshot} -C /tmp/source
 cp /tmp/source/.pocket-build/3ds/build/config.h /tmp/build/config.h
