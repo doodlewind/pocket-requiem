@@ -4,6 +4,7 @@
 /psp/target/
 /n3ds/core/target/
 /n3ds/build/
+/wgpu/target/
 /dist/
 node_modules/
 /web/dist/
@@ -16,3 +17,6 @@ node_modules/
 /.pocket-build/
 
 .DS_Store
+
+# Written by `pocket-studio register`: the project this checkout is in Pocket Studio (it holds no token)
+.pocket-studio.json
