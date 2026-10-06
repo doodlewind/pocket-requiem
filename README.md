@@ -4,7 +4,7 @@ A crowd-battle action game for the PS Vita, the PSP and the Nintendo 3DS: at nig
 
 It plays like a crowd-battle action game. □ chains five strikes of the staff; △ after `n` strikes casts the spell of that step; ○ with a full gauge undoes the binding on every knight around her. A strike that lands holds the frame for a few ticks before anything moves again.
 
-This repository is private. The game's packages and its browser version are published on Pocket Studio (https://studio.pocket.nexus), where its members download the packages ([Releases](#releases)).
+The source is public at https://github.com/doodlewind/pocket-requiem, and anyone with a Pocket Studio account can remix the game ([Remixing this game](#remixing-this-game)). The game's packages and its browser version are published on Pocket Studio (https://studio.pocket.nexus), where its members download the packages ([Releases](#releases)).
 
 | | Screen | Renderer | Measured |
 | --- | --- | --- | --- |
@@ -282,6 +282,25 @@ Starting a package without a development link: `bun tools/psp.ts emu --standalon
 | `wgpu/` | the browser version: the wgpu renderer (`src/render`, `src/shaders`), the shell (`src/app.rs`), the page (`page/`), frames to a file (`src/bin/shot.rs`) |
 | `listing/` | the words of the game's listing on Pocket Studio |
 | `tools/` | `requiem.ts`, `vita.ts`, `psp.ts`, `n3ds.ts`, `bench.ts`, `shot.ts`, `livearea.ts`, `release.ts`, `wgpu.ts`, `wgpu-check.ts`, `listing.ts` |
+
+## Remixing this game
+
+The source is public, and Pocket Studio lets anyone with an account remix the game: start a game of their own from a copy of it. The game's card in Pocket Studio has **Remix**, which writes a prompt for a coding agent; from a terminal linked to an account it is
+
+```sh
+pocket-studio remix requiem
+```
+
+It clones this repository (depth 1, `vendor/pocketjs` at its pinned commit) into `./pocket-requiem-remix/` and registers a Pocket Studio project of the remixer's that names this game as the one it came from, in `.pocket-studio.json` there. `bun tools/release.ts --upload`, `bun tools/wgpu.ts dist` with `pocket-studio site`, and `bun tools/listing.ts --upload` then send to that project, not to this game.
+
+**A remix gives itself a name and an identity before it publishes**, so its packages install beside this game's and not over them:
+
+- The title, "Pocket Requiem", and its forms without the space and in lower case.
+- The app id `dev.pocket-nexus.requiem`: the Vita's title id and the 3DS's card folder are made from it by PocketJS.
+- The Vita title id `PKRQ00001`: nine characters, four capital letters and five digits, its own.
+- The folders the game keeps data in on a card: `ux0:data/pocket-requiem`.
+
+They are in `n3ds/Makefile`, `n3ds/src/main.c`, `package.json`, `psp/Cargo.toml`, `psp/Psp.toml`, `psp/src/main.rs`, `tools/listing.ts`, `tools/n3ds.ts`, `tools/psp.ts`, `tools/release.ts`, `tools/requiem.ts`, `tools/vita.ts`, `tools/wgpu.ts`, `vita/Cargo.toml`, `vita/src/main.rs`, `vita/src/paths.rs`, `web/index.html`, `web/package.json`, `web/src/main.ts`, `wgpu/Cargo.toml`, `wgpu/README.md`, `wgpu/page/index.html`, `wgpu/page/main.js`, `wgpu/src/lib.rs`, `wgpu/src/pack.rs`. A web build goes live at the project's own address only once Pocket Nexus has verified the project; packages and the listing need no mark.
 
 ## Not done
 
