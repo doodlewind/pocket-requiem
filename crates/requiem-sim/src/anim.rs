@@ -12,7 +12,7 @@
 use alloc::vec::Vec;
 
 use crate::math::*;
-use crate::skel::{bone::*, prop_rest, Skeleton, BONES};
+use crate::skel::{bone::*, prop_rest, Carry, Skeleton, BONES};
 
 #[derive(Clone, Copy, Debug)]
 pub struct Foot {
@@ -27,7 +27,7 @@ pub struct Foot {
     pub pitch: f32,
 }
 
-/// The prop in the right hand: the grip's place in cylinder coordinates about
+/// The prop in the right hand: the hand's place on it in cylinder coordinates about
 /// the figure's axis (turned with the body's yaw), and the direction of its head.
 #[derive(Clone, Copy, Debug)]
 pub struct Prop {
@@ -42,6 +42,8 @@ pub struct Prop {
     pub two: f32,
     /// Where the left hand grips, in metres toward the butt from the right hand.
     pub off: f32,
+    /// Where on the shaft the right hand holds it: metres from the prop's own origin toward its head.
+    pub slide: f32,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -84,7 +86,7 @@ impl Key {
             bend: 0.0,
             side: 0.0,
             head: [0.0, 0.0],
-            prop: Prop { a: 1.25, r: 0.3 * h, y: 1.08 * h, az: 0.0, el: 1.5, roll: 0.0, two: 0.0, off: 0.3 },
+            prop: Prop { a: 1.25, r: 0.3 * h, y: 1.08 * h, az: 0.0, el: 1.5, roll: 0.0, two: 0.0, off: 0.3, slide: 0.0 },
             arm_l: [0.06, 0.14, 0.3, 0.0],
             arm_r: [0.06, 0.14, 0.3, 0.0],
             prop_w: 1.0,
@@ -108,7 +110,7 @@ impl Key {
             bend: l(self.bend, o.bend),
             side: l(self.side, o.side),
             head: [l(self.head[0], o.head[0]), l(self.head[1], o.head[1])],
-            prop: Prop { a: l(self.prop.a, o.prop.a), r: l(self.prop.r, o.prop.r), y: l(self.prop.y, o.prop.y), az: l(self.prop.az, o.prop.az), el: l(self.prop.el, o.prop.el), roll: l(self.prop.roll, o.prop.roll), two: l(self.prop.two, o.prop.two), off: l(self.prop.off, o.prop.off) },
+            prop: Prop { a: l(self.prop.a, o.prop.a), r: l(self.prop.r, o.prop.r), y: l(self.prop.y, o.prop.y), az: l(self.prop.az, o.prop.az), el: l(self.prop.el, o.prop.el), roll: l(self.prop.roll, o.prop.roll), two: l(self.prop.two, o.prop.two), off: l(self.prop.off, o.prop.off), slide: l(self.prop.slide, o.prop.slide) },
             arm_l: arr4(&self.arm_l, &o.arm_l),
             arm_r: arr4(&self.arm_r, &o.arm_r),
             prop_w: l(self.prop_w, o.prop_w),
@@ -259,11 +261,11 @@ pub fn solve(skel: &Skeleton, key: &Key) -> [M34; BONES] {
     let p = &key.prop;
     let grip = yaw.apply(v3(sin(p.a) * p.r, 0.0, -cos(p.a) * p.r)) + v3(key.hip.x, p.y + key.hip.y, -key.hip.z);
     let dir = yaw.apply(dir_of(p.az, p.el));
-    let hand_for = |shoulder: V3, at: V3, flip: f32| {
-        // The hand's -Z lies along the prop; its -Y continues the forearm as far as that allows.
-        let fd = (at - shoulder).norm_or(v3(0.0, -1.0, 0.0));
-        let y = -(fd - dir * fd.dot(dir)).norm_or(yaw.apply(v3(flip, 0.0, 0.0)));
-        let z = -dir;
+    // A hand on a shaft that runs along `along`: its -Z lies along the shaft, and its -Y continues `fore` as far as that allows.
+    let hand_on = |fore: V3, along: V3, flip: f32| {
+        let fd = fore.norm_or(v3(0.0, -1.0, 0.0));
+        let y = -(fd - along * fd.dot(along)).norm_or(yaw.apply(v3(flip, 0.0, 0.0)));
+        let z = -along;
         M3 { x: y.cross(z), y, z }
     };
     let chest_r = w[CHEST].r;
@@ -281,14 +283,40 @@ pub fn solve(skel: &Skeleton, key: &Key) -> [M34; BONES] {
         let elbow = shoulder + first * a1;
         (upper, fore, elbow, elbow + second * a2, hand)
     };
+    // Where the elbow of a hanging arm points, in the chest's frame so that it follows the trunk
+    // through a twist: down the trunk, which lets the upper arm hang as near the trunk as the hand
+    // allows, and a little behind it and away from the body, which is where the elbow goes when the
+    // hand is under the shoulder. A hand raised well above the shoulder carries the elbow out to
+    // the side and ahead instead, where a raised arm's elbow is. `to` runs from the shoulder to the wrist.
+    let hang = |s: f32, to: V3| {
+        let raised = saturate((to.norm_or(-chest_r.y).dot(chest_r.y) - 0.35) * 2.0);
+        chest_r.x * (s * (0.15 + 1.45 * raised)) - chest_r.y + chest_r.z * (0.3 - 0.6 * raised)
+    };
+    // A hanging arm to a hand on the shaft at `at`. The hand turns on the shaft to continue the
+    // forearm, and where the forearm lies depends on where that turn puts the wrist: the two are
+    // settled in three rounds, the first with the line from the shoulder in place of the forearm.
+    let grasp = |s: f32, shoulder: V3, at: V3, along: V3, roll: &M3| {
+        let mut held = hand_on(at - shoulder, along, s).mul(roll);
+        let mut got = arm(shoulder, at - held.apply(skel.palm), held, hang(s, at - shoulder));
+        for _ in 0..2 {
+            held = hand_on(got.3 - got.2, along, s).mul(roll);
+            let wrist = at - held.apply(skel.palm);
+            got = arm(shoulder, wrist, held, hang(s, wrist - shoulder));
+        }
+        got
+    };
     {
         let shoulder = w[ARM_UR].t;
         let roll = M3::rot_z(p.roll);
-        let held = hand_for(shoulder, grip, 1.0).mul(&roll);
         let (upper, fore, elbow, wrist, hand) = if key.prop_w > 0.001 {
-            let wrist = grip - held.apply(skel.palm);
-            let hint = yaw.apply(v3(0.55, -0.75, 0.4));
-            let got = arm(shoulder, wrist, held, hint);
+            let got = match skel.carry {
+                Carry::Wide => {
+                    let held = hand_on(grip - shoulder, dir, 1.0).mul(&roll);
+                    arm(shoulder, grip - held.apply(skel.palm), held, yaw.apply(v3(0.55, -0.75, 0.4)))
+                }
+                Carry::Hang => grasp(1.0, shoulder, grip, dir, &roll),
+            };
+            let held = got.4;
             if key.prop_w < 0.999 {
                 let f = free(1.0, &key.arm_r, shoulder);
                 let k = key.prop_w;
@@ -306,7 +334,9 @@ pub fn solve(skel: &Skeleton, key: &Key) -> [M34; BONES] {
         w[ARM_UR] = M34::new(upper, shoulder);
         w[ARM_LR] = M34::new(fore, elbow);
         w[HAND_R] = M34::new(hand, wrist);
-        w[PROP] = M34::new(hand.mul(&prop_rest().m3()), w[HAND_R].apply(skel.palm));
+        // The prop lies in the palm, slid until the hand is `slide` from its origin.
+        let rest = hand.mul(&prop_rest().m3());
+        w[PROP] = M34::new(rest, w[HAND_R].apply(skel.palm) - rest.y * p.slide);
     }
     // ---- the left arm: free, or on the prop below the right hand
     {
@@ -314,16 +344,30 @@ pub fn solve(skel: &Skeleton, key: &Key) -> [M34; BONES] {
         let f = free(-1.0, &key.arm_l, shoulder);
         let (upper, fore, elbow, wrist, hand) = if p.two > 0.001 {
             let prop_dir = w[PROP].r.y;
-            let at = w[PROP].t - prop_dir * p.off;
-            let fd = (at - shoulder).norm_or(v3(0.0, -1.0, 0.0));
-            let y = -(fd - prop_dir * fd.dot(prop_dir)).norm_or(yaw.apply(v3(-1.0, 0.0, 0.0)));
-            let z = -prop_dir;
-            let held = M3 { x: y.cross(z), y, z };
-            let target = at - held.apply(skel.palm);
-            let wrist = f.3.lerp(target, p.two);
-            let hint = yaw.apply(v3(-0.55, -0.75, 0.4));
-            let got = arm(shoulder, wrist, f.1.quat().nlerp(held.quat(), p.two).m3(), hint);
-            (got.0, got.1, got.2, got.3, got.4)
+            let at = w[PROP].t + prop_dir * (p.slide - p.off);
+            match skel.carry {
+                Carry::Wide => {
+                    let held = hand_on(at - shoulder, prop_dir, -1.0);
+                    let target = at - held.apply(skel.palm);
+                    let wrist = f.3.lerp(target, p.two);
+                    let hint = yaw.apply(v3(-0.55, -0.75, 0.4));
+                    arm(shoulder, wrist, f.1.quat().nlerp(held.quat(), p.two).m3(), hint)
+                }
+                Carry::Hang => {
+                    let on = grasp(-1.0, shoulder, at, prop_dir, &M3::ID);
+                    if p.two > 0.999 {
+                        on
+                    } else {
+                        // Part of the way from the free arm to the shaft: the bones turn from one to the other, so the
+                        // hand goes round the body and not through it.
+                        let k = p.two;
+                        let up = f.0.quat().nlerp(on.0.quat(), k).m3();
+                        let fo = f.1.quat().nlerp(on.1.quat(), k).m3();
+                        let e = shoulder + up.apply(v3(0.0, -a1, 0.0));
+                        (up, fo, e, e + fo.apply(v3(0.0, -a2, 0.0)), f.1.quat().nlerp(on.4.quat(), k).m3())
+                    }
+                }
+            }
         } else {
             (f.0, f.1, f.2, f.3, f.1)
         };

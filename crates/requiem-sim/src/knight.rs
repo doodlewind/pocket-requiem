@@ -133,7 +133,7 @@ pub struct Knight {
 }
 
 fn prop(a: f32, r: f32, y: f32, az: f32, el: f32, two: f32, off: f32) -> Prop {
-    Prop { a, r, y, az, el, roll: 0.0, two, off }
+    Prop { a, r, y, az, el, roll: 0.0, two, off, slide: 0.0 }
 }
 
 impl Knight {
@@ -190,7 +190,7 @@ impl Knight {
         let knock = Clip::new(false, 0.8, vec![(0.0, ready, Ease::Out), (0.12, reel, Ease::Smooth), (0.36, reel2, Ease::Smooth), (0.58, crouch, Ease::Smooth), (0.8, ready, Ease::Linear)]);
 
         // ---- off the ground, on its back, and up again
-        let limp = Prop { a: 1.4, r: 0.5, y: 1.2, az: 1.6, el: 0.3, roll: 0.0, two: 0.0, off };
+        let limp = Prop { a: 1.4, r: 0.5, y: 1.2, az: 1.6, el: 0.3, roll: 0.0, two: 0.0, off, slide: 0.0 };
         let air_a = Key { lean: -1.15, bend: -0.25, ik: 0.0, legs: [[0.7, 0.3, 0.9], [0.15, 0.35, 0.4]], prop: limp, prop_w: 0.0, arm_r: [-0.5, 1.2, 0.4, 0.0], arm_l: [-0.3, 1.1, 0.5, 0.0], hip: v3(0.0, 0.1, 0.0), ..ready };
         let air_b = Key { lean: -1.5, bend: -0.1, legs: [[0.2, 0.4, 0.5], [0.6, 0.25, 0.8]], arm_r: [0.2, 1.3, 0.6, 0.0], arm_l: [-0.7, 1.0, 0.3, 0.0], ..air_a };
         let air = Clip::new(true, 0.7, vec![(0.0, air_a, Ease::Smooth), (0.35, air_b, Ease::Smooth)]);
@@ -199,8 +199,8 @@ impl Knight {
         let bounce = Key { hip: v3(0.0, lying + 0.14, 0.3), lean: -1.42, legs: [[0.4, 0.3, 0.5], [0.3, 0.3, 0.4]], ..flat };
         let down = Clip::new(false, 0.5, vec![(0.0, air_b, Ease::In), (0.1, flat, Ease::Out), (0.22, bounce, Ease::In), (0.36, flat, Ease::Linear), (0.5, flat, Ease::Linear)]);
 
-        let sit = Key { lean: -0.75, bend: 0.5, hip: v3(0.0, lying + 0.12, 0.15), ik: 0.0, legs: [[1.1, 0.3, 1.3], [0.7, 0.35, 1.0]], prop: Prop { a: 1.2, r: 0.45, y: 0.5, az: 1.0, el: -0.2, roll: 0.0, two: 0.0, off }, prop_w: 0.0, arm_r: [0.3, 0.5, 0.5, 0.0], arm_l: [0.3, 0.5, 0.6, 0.0], ..ready };
-        let kneel = Key { lean: 0.25, bend: 0.4, hip: v3(0.0, -0.46, 0.0), feet: [Foot { x: -0.16, fwd: 0.28, lift: 0.0, yaw: -0.1, pitch: 0.0 }, Foot { x: 0.17, fwd: -0.3, lift: 0.02, yaw: 0.2, pitch: -0.6 }], prop: Prop { a: 0.9, r: 0.42, y: 0.75, az: 0.3, el: -1.2, roll: 0.0, two: 0.0, off }, ..ready };
+        let sit = Key { lean: -0.75, bend: 0.5, hip: v3(0.0, lying + 0.12, 0.15), ik: 0.0, legs: [[1.1, 0.3, 1.3], [0.7, 0.35, 1.0]], prop: Prop { a: 1.2, r: 0.45, y: 0.5, az: 1.0, el: -0.2, roll: 0.0, two: 0.0, off, slide: 0.0 }, prop_w: 0.0, arm_r: [0.3, 0.5, 0.5, 0.0], arm_l: [0.3, 0.5, 0.6, 0.0], ..ready };
+        let kneel = Key { lean: 0.25, bend: 0.4, hip: v3(0.0, -0.46, 0.0), feet: [Foot { x: -0.16, fwd: 0.28, lift: 0.0, yaw: -0.1, pitch: 0.0 }, Foot { x: 0.17, fwd: -0.3, lift: 0.02, yaw: 0.2, pitch: -0.6 }], prop: Prop { a: 0.9, r: 0.42, y: 0.75, az: 0.3, el: -1.2, roll: 0.0, two: 0.0, off, slide: 0.0 }, ..ready };
         let rise = Clip::new(false, 1.1, vec![(0.0, flat, Ease::Smooth), (0.34, sit, Ease::Smooth), (0.68, kneel, Ease::Smooth), (1.1, ready, Ease::Linear)]);
 
         // ---- undone: the knees give, the trunk folds, it ends face down
