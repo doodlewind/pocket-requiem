@@ -13,7 +13,7 @@ use requiem_sim::sim::{act, btn, ev, tune, Input};
 use requiem_sim::Sim;
 
 use crate::hud::{rgba, Hud};
-use crate::pack::Coming;
+use crate::pack::{Coming, Ranges};
 use crate::render::{Eye, Look, Parts, Renderer, Stats, Waiting};
 
 /// PocketJS's bits of a handheld's buttons (`BTN` of `contracts/spec/spec.ts`), as the page's controls hand them in.
@@ -104,6 +104,8 @@ struct Game {
     most: (u32, u32),
     pack_bytes: usize,
     name: String,
+    /// The bytes of the pack that have arrived.
+    have: Ranges,
 }
 
 /// The field from above for a second screen: the pack's `MAPT` section of the 3DS.
@@ -179,16 +181,17 @@ impl App {
         }
     }
 
-    /// The pack has arrived: everything of it goes to the GPU, and the fight starts.
-    fn start(&mut self, bytes: Vec<u8>) -> Result<(), String> {
+    /// What a first frame needs of the pack has arrived (`have` says which bytes): it goes to the GPU, and
+    /// the fight starts.
+    fn start(&mut self, bytes: Vec<u8>, have: Ranges) -> Result<(), String> {
         let p = Pack::parse(&bytes)?;
-        let renderer = Renderer::new(&self.gpu, &p, self.screen.format, self.shape.width, self.shape.height, self.shape.samples)?;
+        let renderer = Renderer::new(&self.gpu, &p, &have, self.screen.format, self.shape.width, self.shape.height, self.shape.samples)?;
         let mut sim = requiem_sim::worldfile::load(p.section(pack::SIMW)?).map_err(|e| e.to_string())?;
         sim.crowd.free_cap = self.shape.free;
         let name = serde_json::from_slice::<serde_json::Value>(p.section(pack::META)?).ok().and_then(|m| m["profile"].as_str().map(String::from)).unwrap_or_default();
         let parts = Parts { world: true, crowd: true, mage: true, fx: true, lod_near: renderer.scene.lod_near, lod_mid: renderer.scene.lod_mid, crowd_scale: 1.0, crowd_budget: renderer.scene.crowd_budget, far_from: 2 };
         let set = Settings { auto: true, hud: true, hint: true, parts, crowd_budget: None, look: if self.shape.post { Look::DEFAULT } else { Look::PLAIN }, view: None, cast: Vec::new(), cast_wait: 0 };
-        self.game = Some(Game { renderer, sim, synth: Synth::new(), set, note: (String::new(), 0.0), prev_buttons: u32::MAX, frame: 0, stats: Stats::default(), most: (0, 0), pack_bytes: bytes.len(), name });
+        self.game = Some(Game { renderer, sim, synth: Synth::new(), set, note: (String::new(), 0.0), prev_buttons: u32::MAX, frame: 0, stats: Stats::default(), most: (0, 0), pack_bytes: bytes.len(), name, have });
         self.load_ms = task::now() - self.started;
         let words = std::mem::take(&mut self.words);
         self.control(&words);
@@ -207,6 +210,14 @@ impl App {
         let whole = if (due - due.round()).abs() < 0.05 { due.round() } else { due.floor() };
         self.owed = (due - whole).clamp(0.0, 1.0);
         let ticks = (whole as u32).clamp(1, 4);
+        // What arrived of the pack since the last frame goes to the GPU, two reads a frame at most.
+        if let (Some(coming), Some(g)) = (&self.coming, &mut self.game) {
+            for _ in 0..2 {
+                let Some((offset, bytes)) = coming.late() else { break };
+                g.have.add(offset, offset + bytes.len() as u64);
+                g.renderer.arrived(&self.gpu, &g.have, offset, &bytes);
+            }
+        }
         let from = task::now();
         self.step(held, ticks);
         let stepped = task::now();
@@ -222,8 +233,8 @@ impl App {
         if let Some(font) = coming.font() {
             self.waiting = Some(Waiting::new(&self.gpu, &font, self.screen.format)?);
         }
-        if let Some(bytes) = coming.take() {
-            if let Err(e) = self.start(bytes) {
+        if let Some((bytes, have)) = coming.take() {
+            if let Err(e) = self.start(bytes, have) {
                 self.trouble = e;
             } else {
                 self.waiting = None;
@@ -242,7 +253,7 @@ impl App {
         hud.text(44, w * 0.5, 230.0 * k, 0.5, white, "POCKET REQUIEM");
         if self.trouble.is_empty() {
             let (arrived, total) = coming.progress();
-            let line = if arrived >= total && total > 0 { "Mustering the army".to_string() } else { format!("Reading the stage: {:.1} of {:.1} MB", arrived as f32 / 1e6, total as f32 / 1e6) };
+            let line = if total == 0 { "Reading the stage".to_string() } else if arrived >= total { "Mustering the army".to_string() } else { format!("Reading the stage: {:.1} of {:.1} MB", arrived as f32 / 1e6, total as f32 / 1e6) };
             hud.text(18, w * 0.5, 266.0 * k, 0.5, dim, &line);
             let (bx, bw) = (w * 0.5 - 132.0 * k, 264.0 * k);
             hud.rect(bx, 284.0 * k, bw, 4.0 * k, rgba(255, 255, 255, 40));
@@ -457,7 +468,12 @@ impl App {
     /// The run as a JSON object.
     pub fn status(&self) -> String {
         let (arrived, total) = self.coming.as_ref().map(|c| c.progress()).unwrap_or_default();
-        let head = format!("\"shape\":\"{}\",\"size\":[{},{}],\"hz\":{},\"adapter\":{:?},\"read\":[{arrived},{total}],\"trouble\":{:?}", self.shape.name, self.shape.width, self.shape.height, self.shape.hz, self.gpu.adapter, self.trouble);
+        let (all, whole) = self.coming.as_ref().map(|c| c.streamed()).unwrap_or_default();
+        let waiting = self.game.as_ref().map(|g| g.renderer.waiting()).unwrap_or_default();
+        let head = format!(
+            "\"shape\":\"{}\",\"size\":[{},{}],\"hz\":{},\"adapter\":{:?},\"read\":{{\"first\":[{arrived},{total}],\"all\":[{all},{whole}],\"meshesWaiting\":{},\"levelsWaiting\":{}}},\"trouble\":{:?}",
+            self.shape.name, self.shape.width, self.shape.height, self.shape.hz, self.gpu.adapter, waiting.0, waiting.1, self.trouble
+        );
         let Some(g) = &self.game else { return format!("{{\"stage\":\"reading\",{head}}}") };
         let (s, st) = (&g.sim, &g.stats);
         format!(

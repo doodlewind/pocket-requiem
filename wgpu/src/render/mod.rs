@@ -23,6 +23,7 @@ use serde_json::Value;
 
 use crate::hud::Hud;
 use crate::mat::{self, Mat4};
+use crate::pack::Ranges;
 pub use post::Look;
 
 /// The format of the scene's own target and of the quarter-size chain.
@@ -318,6 +319,15 @@ fn buffer(gpu: &Gpu, label: &str, bytes: &[u8], usage: wgpu::BufferUsages) -> wg
     gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some(label), contents, usage })
 }
 
+/// Writes into `buffer`, which holds the pack's bytes from `at` on for `size` bytes, the part of a read of the
+/// pack (`bytes`, from `offset`) that lies in it.
+fn write_part(gpu: &Gpu, buffer: &wgpu::Buffer, at: u64, size: u64, offset: u64, bytes: &[u8]) {
+    let (from, to) = (offset.max(at), (offset + bytes.len() as u64).min(at + size));
+    if from < to {
+        gpu.queue.write_buffer(buffer, from - at, &bytes[(from - offset) as usize..(to - offset) as usize]);
+    }
+}
+
 /// A buffer of `size` bytes a frame writes into.
 fn written(gpu: &Gpu, label: &str, size: usize, usage: wgpu::BufferUsages) -> wgpu::Buffer {
     gpu.device.create_buffer(&wgpu::BufferDescriptor { label: Some(label), size: ((size + 3) & !3) as u64, usage: usage | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false })
@@ -406,22 +416,35 @@ pub struct Renderer {
 
 impl Renderer {
     /// Everything of the pack on the GPU, and the programs, for a screen of `width × height` pixels of
-    /// `format`, the scene drawn with `samples` samples a pixel.
-    pub fn new(gpu: &Gpu, p: &Pack, format: wgpu::TextureFormat, width: u32, height: u32, samples: u32) -> Result<Renderer, String> {
+    /// `format`, the scene drawn with `samples` samples a pixel. `have` says which bytes of the pack have
+    /// arrived: the detailed meshes and the army's finest levels may still be on their way.
+    pub fn new(gpu: &Gpu, p: &Pack, have: &Ranges, format: wgpu::TextureFormat, width: u32, height: u32, samples: u32) -> Result<Renderer, String> {
         let meta: Value = serde_json::from_slice(p.section(pack::META)?).map_err(|e| e.to_string())?;
         let scene = Scene::from_meta(&meta);
         let globals_layout = gpu.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("globals"), entries: &[uniform_entry(0, wgpu::ShaderStages::VERTEX_FRAGMENT, core::mem::size_of::<Globals>() as u64, false)] });
         let globals = written(gpu, "globals", core::mem::size_of::<Globals>(), wgpu::BufferUsages::UNIFORM);
         let globals_group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("globals"), layout: &globals_layout, entries: &[wgpu::BindGroupEntry { binding: 0, resource: globals.as_entire_binding() }] });
         let targets = Targets::new(gpu, width, height, samples);
-        let world = world::World::load(gpu, p, &scene, &globals_layout, samples)?;
-        let crowd = crowd::Crowd::load(gpu, p, &scene, &globals_layout, samples)?;
+        let world = world::World::load(gpu, p, have, &scene, &globals_layout, samples)?;
+        let crowd = crowd::Crowd::load(gpu, p, have, &scene, &globals_layout, samples)?;
         let figures = figures::Figures::load(gpu, p, &scene, &globals_layout, samples)?;
         let fx = fx::Fx::load(gpu, p, &globals_layout, samples)?;
         let post = post::Post::new(gpu, format, &targets);
         let hud = crate::hud::Painter::load(gpu, p, format)?;
         let bytes = world.bytes + crowd.bytes + figures.bytes + fx.bytes;
         Ok(Renderer { scene, samples, targets, globals, globals_group, world, crowd, figures, fx, post, hud, bytes })
+    }
+
+    /// A read of the pack that arrived after the fight started: `bytes` from `offset`. `have` is everything
+    /// that has arrived, this read with it. What the read completes is drawn from the next frame on.
+    pub fn arrived(&mut self, gpu: &Gpu, have: &Ranges, offset: u64, bytes: &[u8]) {
+        self.world.arrive(gpu, have, Some((offset, bytes)));
+        self.crowd.arrive(gpu, have, Some((offset, bytes)));
+    }
+
+    /// Detailed meshes of the field and levels of the army that have not arrived yet.
+    pub fn waiting(&self) -> (usize, usize) {
+        (self.world.waiting(), self.crowd.waiting())
     }
 
     /// Another screen from the next frame on.

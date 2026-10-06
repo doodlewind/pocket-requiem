@@ -7,7 +7,7 @@ The game of the handheld builds, drawn with [wgpu](https://wgpu.rs) 25: over Web
 | `src/render/` | The renderer: `vita/src` in wgpu. `world.rs` the field's meshes and the choice of them, `crowd.rs` the army as instanced blends of stored frames, `figures.rs` the sky, the shadows, the mage and the demon, `fx.rs` the effects, `post.rs` the quarter-size chain and the grade. |
 | `src/shaders/` | The PS Vita's programs (`vita/shaders/*.cg`) in WGSL, one file a family. |
 | `src/hud.rs` | The readouts' batch and its draw: quads and glyphs from the pack's `FONT` section. |
-| `src/pack.rs` | The pack over HTTP: the section table, the glyphs, then every section. |
+| `src/pack.rs` | The pack over HTTP: the section table, the glyphs, what a first frame needs, then the rest behind the fight. |
 | `src/app.rs` | The shell: the screens (`SHAPES`), a handheld's pad, the ticks of a frame, the eye, what the readouts say, the map for a second screen, the sound, the words a development host sends. |
 | `src/web.rs`, `page/` | The tab: what the page calls, and the page itself. |
 | `src/bin/shot.rs` | Frames on this machine's GPU, written to a PNG or handed to an encoder as rows of RGBA. |
@@ -30,18 +30,25 @@ The build needs the `wasm32-unknown-unknown` target and `wasm-bindgen` 0.2.126 o
 
 ## The launch
 
-The page plays the Pocket3D title card first (`playTitle()` of PocketJS's `pocket3d-title`, copied into the site as it is): 144 ticks, 2.4 s, over the whole page. While it plays the page opens the renderer on the canvas and starts reading the pack. When the card has ended the canvas is shown. Until the pack has arrived a frame is the game's name and how much has been read (`App::wait`), drawn with the pack's own glyphs, which are read first; a start that fails is said the same way. A browser without WebGPU is told so in one sentence after the card; there is no other renderer.
+The page plays the Pocket3D title card first (`playTitle()` of PocketJS's `pocket3d-title`, copied into the site as it is): 144 ticks, 2.4 s, over the whole page. While it plays the page opens the renderer on the canvas and starts reading the pack. When the card has ended the canvas is shown. Until the first set of reads has arrived a frame is the game's name and how much of that set has been read (`App::wait`), drawn with the pack's own glyphs, which are read first; a start that fails is said the same way. A browser without WebGPU is told so in one sentence after the card; there is no other renderer.
 
 ## The pack over HTTP
 
-**The pack is read whole before the fight starts, as the PS Vita reads it**: 59.6 MB, of which the field's meshes are 33.7 MB and the army's stored frames 22.5 MB, and a first frame draws from both. Every read is `Source::range(offset, size)` of the kernel: the section table, then the `FONT` section, then ranges of 2 MiB, four side by side.
+The PS Vita reads its pack whole before it draws: 59.6 MB. **A tab starts the fight on 25.0 MB of it and reads the other 34.6 MB behind the fight** (`src/pack.rs`). The reads are ranges of 1 MiB of the kernel's `Source`, four side by side, in this order:
+
+1. The section table, then the `FONT` section: the canvas says what is read with the pack's own glyphs.
+2. The `MESH` table and the head of `CRWD`: they say which bytes can wait.
+3. **The first set**: every read that holds anything a first frame needs. When it has arrived the pack goes to the GPU and the fight starts.
+4. **The second set**: the reads that lie inside the vertices and indices of the field's detailed meshes (23.1 MB of the pack) or inside the stored frames of the army's two finest levels of detail (19.8 MB). A frame takes two of them at most to the GPU as they arrive (`Renderer::arrived`).
+
+Until its detailed mesh is here **a cell within the near distance draws its simple mesh**, and until a level's frames are here **a knight is drawn as the next coarser level that is** (`World::arrive`, `Crowd::arrive`). The picture changes when a read completes a mesh or a level; nothing else waits for it.
 
 The source has two forms:
 
 - **The pack's file**, on a server that answers byte ranges: each read is a request with a `Range` header. `serve` does this.
-- **The pack cut into pieces of one size** with a manifest that lists them (`<meta name="pocket-pack">` names a `.json`). A read fetches the pieces it lies in, whole and with plain requests. `dist` writes this form.
+- **The pack cut into pieces of one size** with a manifest that lists them (`<meta name="pocket-pack">` names a `.json`). A read fetches the piece it is, whole and with a plain request. `dist` writes this form, with pieces of the size of a read.
 
-`bun tools/wgpu.ts dist` writes `.pocket-build/wgpu/dist` for a host that limits a file to 32 MiB and keeps a file ten minutes in a browser's cache (Pocket Studio's site deployments): `index.html` and `icon.png`; everything else of the site under `app/<build>/`, named by a hash of its contents (the module, the page's scripts and stylesheets, the handhelds' shells and the player's font, the map); `pack/<hash>.json` and the pieces, each named by its own hash. The page alone is asked for again at every visit. With pieces of 2 MiB the directory is **57 files and 61.1 MB**: 29 pieces and their manifest (59.6 MB), 25 files of the site (1.4 MB), the page and the icon. `dist` refuses a directory the host would (a file over 32 MiB, more than 4 000 files or 1 GiB, a top-level `play/` or `runtime/`). A checkout that `pocket-studio register` has linked (`.pocket-studio.json`, which Git ignores) gets the project's id and the Studio's origin written into the page (`<meta name="pocket-app">`, `<meta name="pocket-studio">`): the player's door then leads to the game's card. Nothing uploads the directory: `pocket-studio site .pocket-build/wgpu/dist` does.
+`bun tools/wgpu.ts dist` writes `.pocket-build/wgpu/dist` for a host that limits a file to 32 MiB and keeps a file ten minutes in a browser's cache (Pocket Studio's site deployments): `index.html` and `icon.png`; everything else of the site under `app/<build>/`, named by a hash of its contents (the module, the page's scripts and stylesheets, the handhelds' shells and the player's font, the map); `pack/<hash>.json` and the pieces, each named by its own hash. The page alone is asked for again at every visit. With pieces of 1 MiB the directory is **85 files and 61.1 MB**: 57 pieces and their manifest (59.6 MB), 25 files of the site (1.4 MB), the page and the icon. `dist` refuses a directory the host would (a file over 32 MiB, more than 4 000 files or 1 GiB, a top-level `play/` or `runtime/`). A checkout that `pocket-studio register` has linked (`.pocket-studio.json`, which Git ignores) gets the project's id and the Studio's origin written into the page (`<meta name="pocket-app">`, `<meta name="pocket-studio">`): the player's door then leads to the game's card. Nothing uploads the directory: `pocket-studio site .pocket-build/wgpu/dist` does.
 
 ## The devices
 
@@ -102,6 +109,7 @@ What differs from the PS Vita's renderer:
 - **Colours are computed in 32-bit floats.** The PS Vita's fragment programs compute in 16.
 - **The composite is one program** whose gains are zero where the PS Vita picks another of three.
 - **A power of what is left of an effect's life is taken of 0.00001 at least.**
+- **The fight starts before the pack is whole** (above). The PS Vita has every mesh and every level from its first frame.
 - **The browser compiles the programs** at every load: there is no SceShaccCg and no cache of programs.
 
 ## Measured
@@ -115,16 +123,16 @@ Chrome 154 (headless, WebGPU on the Apple GPU through Metal) on an M3 Max, the p
 | The frame measured, 12 s into the autopilot's fight | 1 654 knights, 321 000 triangles, 240 draws | the same | 1 629 knights, 318 000 triangles, 233 draws |
 | The first frame of the fight after the page's start | 2.4 s | 2.5 s | 2.5 s |
 
-- **The first frame of the fight is the end of the title card when the pack is at hand**: 2.4 s. **Over a line of 16 Mbit/s with 40 ms of latency (Chrome's own throttle) it is at 32 s**, of which 30 s is the pack.
+- **The first frame of the fight is the end of the title card when the pack is at hand**: 2.4 s. **Over a line of 16 Mbit/s with 40 ms of latency (Chrome's own throttle) and nothing cached it is at 13.5 s**, when the first set (25.0 MB) has arrived, and the whole pack is on the GPU at 31.5 s. Read whole before the first frame, as before the two sets, the fight started at 32.2 s.
 - **With the mage standing still for 30 s and the army closed round her** (`auto=0` from tick 840): 243 knights out of formation, 1 722 in view, 312 000 triangles in 339 draws, the hand-over distances pulled in to 0.30 by the PS Vita's budget of 230 000 triangles; a frame costs 0.29 ms, of which the simulation's two ticks 0.09 ms.
 - **The pack on the GPU is 63.5 MB**: the pack's sections as they are, and the atlas as RGBA.
 - **The site**: the module is 772 750 bytes (262 557 gzipped); 1.4 MB with the player's shells and font and the map.
 
-`check` drives the real page with real input: on each device the title card, the pack read, the fight; a key takes the pad from the autopilot, the stick moves her, START hands the pad back, a key of the shell under the pointer takes it again; the synthesizer answers with sound; the console has no error. Then the mage close up, the army closed round her, another device picked from the bar in the fight, the 3DS's lower screen, a phone's window with a thumb on the shell's key, a browser without WebGPU, and the first picture over the slow line.
+`check` drives the real page with real input: on each device the title card, the pack read, the fight; a key takes the pad from the autopilot, the stick moves her, START hands the pad back, a key of the shell under the pointer takes it again; the synthesizer answers with sound; the console has no error. Then the mage close up, the army closed round her, another device picked from the bar in the fight, the 3DS's lower screen, a phone's window with a thumb on the shell's key, a browser without WebGPU, and the slow line: the fight starts before the pack is whole, and every mesh and level is there when it is.
 
 ## Not done
 
-- **The pack is read whole before the first frame.** A reader that starts the fight with the far and middle meshes and the coarse levels of the army, and reads the rest behind it, would cut the wait on a slow line.
+- **The first set is 25.0 MB.** The simple meshes, the far meshes and the army's three coarser levels are 12 MB of it; reads of 1 MiB that straddle a part that could wait bring the rest.
 - No other browser, no other GPU and no phone itself has drawn it. The sound has been checked for being there, not heard by a person.
 - No gamepad. The page reads keys, and the shell's keys under a pointer or a finger.
 - The readouts on the 3DS's screen are the PS Vita's glyphs at 0.44 of their size; the console's own are cut for its screen.

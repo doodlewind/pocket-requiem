@@ -142,10 +142,10 @@ The PSP's GE is the limit: with 12 000 triangles of knights' meshes and longer d
 `wgpu/` is a fourth runtime: **`requiem-sim` compiled to wasm32, the PS Vita's pack (`vita30`) as it is, and the PS Vita's programs in WGSL**, drawn with wgpu over WebGPU. The page is PocketJS's Pocket3D player: the game in the shell of a PS Vita, a PSP or a Nintendo 3DS, the shell's keys as the controls, and the way to the game's card in Pocket Studio. The readouts are drawn by the renderer, as on the consoles, and the sound is the simulation's synthesizer.
 
 - **Whatever device the page shows, the pack and the programs are the PS Vita's.** A device changes the screen's size, whether the frame goes through the PS Vita's chain, the cap on knights out of formation, and the buttons. The player says for each device how its own build differs.
-- **The pack is read whole before the fight starts**: 59.6 MB in ranges of 2 MiB, four side by side, with the amount read on the canvas.
+- **The fight starts on 25.0 MB of the pack's 59.6 MB**; the detailed meshes of the field and the stored frames of the army's two finest levels are read behind it. Until they arrive a near cell draws its simple mesh and a knight is drawn a level coarser.
 - **The same renderer runs on the build machine** (`wgpu/src/bin/shot.rs`), where it writes frames to a file. `bun tools/listing.ts` records the game's listing for Pocket Studio with it.
 
-Measured in Chrome 154 on an M3 Max: 30 frames a second on each device, a frame costing 0.26 ms with 1 654 knights and 321 000 triangles in view; the first frame of the fight 2.4 s after the page's start with the pack at hand, 32 s over a line of 16 Mbit/s. [`wgpu/README.md`](wgpu/README.md) has the mechanisms, the differences from the PS Vita's renderer and the measurements.
+Measured in Chrome 154 on an M3 Max: 30 frames a second on each device, a frame costing 0.26 ms with 1 654 knights and 321 000 triangles in view; the first frame of the fight 2.4 s after the page's start with the pack at hand, 13.5 s over a line of 16 Mbit/s. [`wgpu/README.md`](wgpu/README.md) has the mechanisms, the differences from the PS Vita's renderer and the measurements.
 
 The three.js reference in `web/` is where the stage is authored. It is not the browser version and is not published.
 
@@ -260,6 +260,6 @@ Vita `ctl` keys: `auto`, `reset`, `view {pos, target, fov}`, `pace` (refreshes p
 - The sound has not been heard by a person on the console. Hand feel (the freeze lengths, the cancel windows, the camera) is set from the autopilot and from captures, not by play.
 - The army's damage and turn-taking are set so that the autopilot does not fall in five minutes of the harness; they have not been tuned by play.
 - The reference draws no post-processing; the look of the console's frame is checked on the console.
-- **The browser version** reads its pack whole before the first frame (32 s on a line of 16 Mbit/s), reads no gamepad, and has been drawn by Chrome on one machine's GPU and by no other browser. Its PSP and 3DS screens draw the PS Vita's army at those sizes, not those consoles' own.
+- **The browser version** reads no gamepad, and has been drawn by Chrome on one machine's GPU and by no other browser. Its PSP and 3DS screens draw the PS Vita's army at those sizes, not those consoles' own.
 - The Vita reads the pack whole into memory before it is uploaded; a section-by-section loader would halve the peak.
 - The 3DS core links with thin link-time optimization: the full pass fails to load the simulation's bitcode with that toolchain's nightly. `cargo test --release` fails to link the simulation's two binaries for the same family of reason; `cargo test` and `cargo run --release` work.

@@ -195,7 +195,16 @@ export async function check({ origin, directory, seconds, headed, deployed, open
       await v.page.reload();
       await v.up();
       const times = (await v.page.evaluate("({ firstFrame: pocketRequiem.firstFrame, firstGame: pocketRequiem.firstGame })")) as { firstFrame: number; firstGame: number };
-      report.slowLine = { firstFrameMs: Math.round(times.firstFrame), firstGameMs: Math.round(times.firstGame) };
+      // The fight has started on the first set of reads: the detailed meshes and the army's finest levels follow.
+      const early = (await v.status()).read;
+      await v.frame("slow-line-start");
+      expect("the fight waited for the whole pack", early.all[0] < early.all[1] && early.meshesWaiting > 0 && early.levelsWaiting > 0);
+      await v.page.waitForFunction("(() => { const r = JSON.parse(pocketRequiem.requiem.status()).read; return r.all[0] === r.all[1] && r.meshesWaiting === 0 && r.levelsWaiting === 0; })()", undefined, { timeout: 180_000 });
+      const whole = (await v.page.evaluate("performance.now()")) as number;
+      await v.page.waitForTimeout(500);
+      await v.frame("slow-line-whole");
+      report.slowLine = { firstFrameMs: Math.round(times.firstFrame), firstGameMs: Math.round(times.firstGame), firstSetBytes: early.first[1], packBytes: early.all[1], wholeMs: Math.round(whole) };
+      expect(`a slow line's console has ${v.problems.join(" | ")}`, v.problems.length === 0);
       await context.close();
     }
     // What the page told its host: once a visit, with the device it opened as (a host that names an address).

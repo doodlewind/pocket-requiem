@@ -15,8 +15,9 @@ use pocket_web_wgpu::wgpu;
 use requiem_pack::{self as pack, mesh_kind, MeshRec, Pack, TexHeader};
 use requiem_sim::math::V3;
 
-use super::{buffer, module, picture, pipeline, sampler_entry, texture_entry, Blend, Depth, Program, Scene, SCENE};
+use super::{buffer, module, picture, pipeline, sampler_entry, texture_entry, write_part, Blend, Depth, Program, Scene, SCENE};
 use crate::mat;
+use crate::pack::Ranges;
 
 #[derive(Clone, Copy, Default)]
 struct Range {
@@ -57,6 +58,11 @@ pub struct World {
     plain: wgpu::RenderPipeline,
     lit: wgpu::RenderPipeline,
     recs: Vec<MeshRec>,
+    /// Where the vertices and the indices start in the pack, and their sizes.
+    vtx_at: (u64, u64),
+    idx_at: (u64, u64),
+    /// Per mesh, whether its vertices and indices have arrived.
+    here: Vec<bool>,
     /// Mesh indices, grouped: every range above points in here.
     lists: Vec<u32>,
     cells: Vec<Cell>,
@@ -105,11 +111,12 @@ fn bc1(blocks: &[u8], w: usize, h: usize) -> Vec<u8> {
 }
 
 impl World {
-    pub fn load(gpu: &Gpu, p: &Pack, scene: &Scene, globals: &wgpu::BindGroupLayout, samples: u32) -> Result<World, String> {
+    pub fn load(gpu: &Gpu, p: &Pack, have: &Ranges, scene: &Scene, globals: &wgpu::BindGroupLayout, samples: u32) -> Result<World, String> {
         let recs = p.meshes()?;
         let (vtx_src, idx_src) = (p.section(pack::VTX0)?, p.section(pack::IDX0)?);
-        let vtx = buffer(gpu, "world vertices", vtx_src, wgpu::BufferUsages::VERTEX);
-        let idx = buffer(gpu, "world indices", idx_src, wgpu::BufferUsages::INDEX);
+        let vtx = buffer(gpu, "world vertices", vtx_src, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST);
+        let idx = buffer(gpu, "world indices", idx_src, wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST);
+        let placed = |tag| p.range(tag).map(|(at, size)| (at as u64, size as u64)).ok_or("the pack's table");
         let records: Vec<f32> = recs.iter().flat_map(|r| [r.min[0], r.min[1], r.min[2], r.max[0] - r.min[0], r.max[1] - r.min[1], r.max[2] - r.min[2]]).collect();
         let bounds = buffer(gpu, "world bounds", bytemuck::cast_slice(&records), wgpu::BufferUsages::VERTEX);
 
@@ -212,7 +219,31 @@ impl World {
         let program = |label, vertex| pipeline(gpu, &Program { label, module: &module, vertex, fragment: "shade", groups: &[globals, &layout], buffers: &buffers, format: SCENE, samples, depth: Depth::Solid, blend: Blend::Opaque });
         let (plain, lit) = (program("world", "plain"), program("world lit", "lit"));
         let bytes = vtx_src.len() + idx_src.len() + levels.iter().map(Vec::len).sum::<usize>();
-        Ok(World { vtx, idx, bounds, atlas, plain, lit, recs, lists, cells, supers, backdrop, chosen: Vec::with_capacity(512), chosen_lit: Vec::with_capacity(64), stats: Stats::default(), bytes })
+        let mut world = World { vtx, idx, bounds, atlas, plain, lit, here: vec![false; recs.len()], recs, vtx_at: placed(pack::VTX0)?, idx_at: placed(pack::IDX0)?, lists, cells, supers, backdrop, chosen: Vec::with_capacity(512), chosen_lit: Vec::with_capacity(64), stats: Stats::default(), bytes };
+        world.arrive(gpu, have, None);
+        Ok(world)
+    }
+
+    /// Takes a read of the pack that arrived after the start (its offset and its bytes) into the buffers,
+    /// and marks the meshes whose vertices and indices are all in `have`.
+    pub fn arrive(&mut self, gpu: &Gpu, have: &Ranges, read: Option<(u64, &[u8])>) {
+        if let Some((offset, bytes)) = read {
+            write_part(gpu, &self.vtx, self.vtx_at.0, self.vtx_at.1, offset, bytes);
+            write_part(gpu, &self.idx, self.idx_at.0, self.idx_at.1, offset, bytes);
+        }
+        for (m, here) in self.recs.iter().zip(self.here.iter_mut()).filter(|(_, here)| !**here) {
+            let (v, i) = (self.vtx_at.0 + m.vtx_first as u64 * 16, self.idx_at.0 + m.idx_first as u64 * 2);
+            *here = have.cover(v, v + m.vtx_count as u64 * 16) && have.cover(i, i + m.idx_count as u64 * 2);
+        }
+    }
+
+    /// Meshes that have not arrived yet.
+    pub fn waiting(&self) -> usize {
+        self.here.iter().filter(|here| !**here).count()
+    }
+
+    fn all_here(&self, r: Range) -> bool {
+        self.lists[r.first as usize..(r.first + r.count) as usize].iter().all(|&i| self.here[i as usize])
     }
 
     fn take(&mut self, planes: &[[f32; 4]; 6], r: Range, test: bool, lights: &[(V3, f32)]) {
@@ -265,7 +296,8 @@ impl World {
                     continue;
                 }
                 let before = self.chosen.len() + self.chosen_lit.len();
-                if mat::box_distance(eye, &c_min, &c_max) < lod_near {
+                // (a cell whose detailed mesh is still on its way draws its simple one)
+                if mat::box_distance(eye, &c_min, &c_max) < lod_near && self.all_here(c_near) {
                     self.take(planes, c_near, false, lights);
                     self.stats.near += (self.chosen.len() + self.chosen_lit.len() - before) as u32;
                 } else {

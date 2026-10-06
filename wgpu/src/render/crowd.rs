@@ -14,7 +14,8 @@ use requiem_sim::crowd::Draw;
 use requiem_sim::math::*;
 use requiem_sim::Sim;
 
-use super::{buffer, module, pipeline, written, Blend, Depth, Program, Scene, SCENE};
+use super::{buffer, module, pipeline, write_part, written, Blend, Depth, Program, Scene, SCENE};
+use crate::pack::Ranges;
 
 /// Knights one frame can draw.
 pub const CAPACITY: usize = 3072;
@@ -44,6 +45,13 @@ pub struct Crowd {
     near: wgpu::RenderPipeline,
     far_program: wgpu::RenderPipeline,
     meshes: Vec<Mesh>,
+    /// Where the section starts in the pack, and its size.
+    at: (u64, u64),
+    frames: u64,
+    /// Per mesh, whether its frames, colours and indices have arrived, and the level drawn in its place:
+    /// its own, or the next coarser one that is here.
+    here: Vec<bool>,
+    shown: Vec<usize>,
     lods: usize,
     /// Squared distance at which each level of detail hands over to the next.
     reach2: Vec<f32>,
@@ -59,7 +67,7 @@ pub struct Crowd {
 }
 
 impl Crowd {
-    pub fn load(gpu: &Gpu, p: &Pack, scene: &Scene, globals: &wgpu::BindGroupLayout, samples: u32) -> Result<Crowd, String> {
+    pub fn load(gpu: &Gpu, p: &Pack, have: &Ranges, scene: &Scene, globals: &wgpu::BindGroupLayout, samples: u32) -> Result<Crowd, String> {
         let data = p.section(pack::CRWD)?;
         let head: CrowdHeader = pack::read(data, 0).ok_or("crowd header")?;
         let count = (head.kinds * head.lods) as usize;
@@ -76,7 +84,8 @@ impl Crowd {
             }
             meshes.push(Mesh { vtx_count: m.vtx_count as u64, idx_count: m.idx_count, color: m.color_at as u64, idx: m.idx_at as u64, frames: m.frames_at as u64 });
         }
-        let buffer = buffer(gpu, "crowd", data, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::INDEX);
+        let buffer = buffer(gpu, "crowd", data, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST);
+        let at = p.range(pack::CRWD).map(|(at, size)| (at as u64, size as u64)).ok_or("the pack's table")?;
         let instances = written(gpu, "knights", CAPACITY * core::mem::size_of::<CrowdInstance>(), wgpu::BufferUsages::VERTEX);
 
         // Two buffers of stored frames, one of colours, one record per knight.
@@ -88,7 +97,11 @@ impl Crowd {
             wgpu::VertexBufferLayout { array_stride: 20, step_mode: wgpu::VertexStepMode::Instance, attributes: &wgpu::vertex_attr_array![5 => Float32x3, 6 => Sint16x2, 7 => Unorm8x4] },
         ];
         let program = |label, vertex| pipeline(gpu, &Program { label, module: &module, vertex, fragment: "tint", groups: &[globals], buffers: &buffers, format: SCENE, samples, depth: Depth::Solid, blend: Blend::Opaque });
-        Ok(Crowd {
+        let mut crowd = Crowd {
+            at,
+            frames: head.frames as u64,
+            here: vec![false; count],
+            shown: (0..count).map(|i| i % head.lods as usize).collect(),
             data: buffer,
             instances,
             near: program("crowd", "near"),
@@ -104,7 +117,34 @@ impl Crowd {
             records: Vec::with_capacity(CAPACITY),
             stats: Stats::default(),
             bytes: data.len(),
-        })
+        };
+        crowd.arrive(gpu, have, None);
+        Ok(crowd)
+    }
+
+    /// Takes a read of the pack that arrived after the start (its offset and its bytes) into the buffer,
+    /// and marks the meshes whose frames, colours and indices are all in `have`. A level that is not here
+    /// is drawn as the next coarser one that is.
+    pub fn arrive(&mut self, gpu: &Gpu, have: &Ranges, read: Option<(u64, &[u8])>) {
+        if let Some((offset, bytes)) = read {
+            write_part(gpu, &self.data, self.at.0, self.at.1, offset, bytes);
+        }
+        let stride = core::mem::size_of::<CrowdVertex>() as u64;
+        for (m, here) in self.meshes.iter().zip(self.here.iter_mut()).filter(|(_, here)| !**here) {
+            let part = |from: u64, size: u64| have.cover(self.at.0 + from, self.at.0 + from + size);
+            *here = part(m.frames, self.frames * m.vtx_count * stride) && part(m.color, m.vtx_count * 4) && part(m.idx, m.idx_count as u64 * 2);
+        }
+        for kind in 0..self.meshes.len() / self.lods {
+            for lod in (0..self.lods).rev() {
+                let i = kind * self.lods + lod;
+                self.shown[i] = if self.here[i] || lod + 1 == self.lods { lod } else { self.shown[i + 1] };
+            }
+        }
+    }
+
+    /// Meshes that have not arrived yet.
+    pub fn waiting(&self) -> usize {
+        self.here.iter().filter(|here| !**here).count()
     }
 
     /// Gathers every knight in view, orders them by what they show and writes their records. `scale` pulls
@@ -115,7 +155,8 @@ impl Crowd {
         self.order.clear();
         // The triangle budget: pull the hand-over distances in (never the last, where a knight stops being drawn)
         // until the knights in view fit. A press of knights round the eye is then drawn a level coarser, not late.
-        let level = |d2: f32, k2: f32| {
+        // (a level whose frames are still on their way is drawn as the next coarser one that is here)
+        let level = |kind: usize, d2: f32, k2: f32| {
             let mut lod = self.lods - 1;
             for (l, r) in self.reach2[..self.lods - 1].iter().enumerate() {
                 if d2 < r * k2 {
@@ -123,11 +164,11 @@ impl Crowd {
                     break;
                 }
             }
-            lod
+            self.shown[kind * self.lods + lod]
         };
         let mut k2 = scale * scale;
         for _ in 0..7 {
-            let tris: usize = self.draws.iter().take(CAPACITY).map(|d| self.meshes[(d.kind as usize).min(2) * self.lods + level(d.dist2, k2)].idx_count as usize / 3).sum();
+            let tris: usize = self.draws.iter().take(CAPACITY).map(|d| self.meshes[(d.kind as usize).min(2) * self.lods + level((d.kind as usize).min(2), d.dist2, k2)].idx_count as usize / 3).sum();
             if tris <= self.budget {
                 break;
             }
@@ -135,7 +176,7 @@ impl Crowd {
         }
         stats.pulled = sqrt(k2) / scale;
         for (i, d) in self.draws.iter().enumerate().take(CAPACITY) {
-            let lod = level(d.dist2, k2);
+            let lod = level((d.kind as usize).min(2), d.dist2, k2);
             stats.by_lod[lod.min(4)] += 1;
             // Level first, so the draws of one program are together.
             self.order.push(((lod as u32) << 16 | (d.kind as u32).min(2) << 14 | (d.a as u32) << 7 | d.b as u32, i as u32));

@@ -6,9 +6,10 @@
 //                                                  3DS's for its map of the field → .pocket-build/stage/the-field.map
 //   bun tools/wgpu.ts build                        wasm32 + wasm-bindgen + the page + PocketJS's player → .pocket-build/wgpu/site
 //   bun tools/wgpu.ts serve [--port 8802]          the site and the pack, with byte ranges
-//   bun tools/wgpu.ts dist [--piece 2]             the directory a static host serves → .pocket-build/wgpu/dist:
+//   bun tools/wgpu.ts dist [--piece 1]             the directory a static host serves → .pocket-build/wgpu/dist:
 //                                                  the page, the module under its build's name, and the pack
-//                                                  cut into pieces of that many MiB with their manifest
+//                                                  cut into pieces of that many MiB with their manifest (one piece
+//                                                  a read of wgpu/src/pack.rs)
 //   bun tools/wgpu.ts serve --dist                 that directory as such a host serves it: no byte ranges
 //   bun tools/wgpu.ts shot [--out f.png] [--shape vita] [--size WxH] [--frames 240] [--words "view=… auto=0"]
 //                                                  one frame on this machine's GPU (Metal) → a PNG and the status
@@ -256,9 +257,9 @@ if (!import.meta.main) {
   needPack();
   console.log(JSON.stringify(await build(), null, 1));
 } else if (command === "dist") {
-  console.log(JSON.stringify(await dist(Math.round(Number(option("--piece", "2")) * (1 << 20))), null, 1));
+  console.log(JSON.stringify(await dist(Math.round(Number(option("--piece", "1")) * (1 << 20))), null, 1));
 } else if (command === "serve" && rest.includes("--dist")) {
-  if (!existsSync(join(DIST, "index.html"))) await dist(2 << 20);
+  if (!existsSync(join(DIST, "index.html"))) await dist(1 << 20);
   const server = serveDist(Number(option("--port", "8802")));
   console.log(`http://127.0.0.1:${server.port}/   (${DIST})`);
 } else if (command === "serve") {
@@ -276,7 +277,7 @@ if (!import.meta.main) {
   const { check } = await import("./wgpu-check.ts");
   needPack();
   // (--dist: the deployable directory, served whole files only, with the pack in pieces)
-  const deployed = rest.includes("--dist") ? await dist(Math.round(Number(option("--piece", "2")) * (1 << 20))) : null;
+  const deployed = rest.includes("--dist") ? await dist(Math.round(Number(option("--piece", "1")) * (1 << 20))) : null;
   const sizes = deployed ? JSON.parse(readFileSync(join(BUILD, "site.json"), "utf8")).sizes : await build();
   const server = deployed ? serveDist(0) : serve(0);
   const directory = validation(`check-${deployed ? "dist-" : ""}${stamp()}`);
