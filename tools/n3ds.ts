@@ -11,13 +11,19 @@
 //   bun tools/n3ds.ts bench [--seconds 60] [--install]   # autopilot frame timings → .pocket-build/validation/3ds/
 //   bun tools/n3ds.ts look [--install] [--lead 14] [--ctl "auto=0"] [--frames 4] [--every 8] [--out DIR]
 //                                               # one lease: install, run, steer, capture frames with their status
+//   bun tools/n3ds.ts emu [--ctl "…"] [--seconds 6] [--out f.png] [--keep]
+//                                               # the built .3dsx in Azahar (a window opens), with its own SD card and
+//                                               # pairing key under .pocket-build/3ds/azahar: status and the upper screen
 //
 // `--host ADDRESS` (default 192.168.8.159, or POCKET_3DS_HOST). The console
 // must run a Pocket Runtime build with the paired wire: this program itself
 // once installed, or another Pocket Nexus .3dsx. Installs are .3dsx only.
+// `--host 127.0.0.1` is the emulator `emu --keep` left running: status, ctl
+// and capture reach it with its own key and do not claim the console.
 
 import { $ } from "bun";
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { pocketRuntimeDeviceId } from "../vendor/pocketjs/contracts/spec/pocket-runtime-wire.ts";
 import { withDeviceLease } from "../vendor/pocketjs/tools/device-lease.ts";
@@ -37,7 +43,10 @@ const opt = (key: string, fallback: string) => {
   const at = argv.indexOf(key);
   return at < 0 ? fallback : (argv[at + 1] ?? fallback);
 };
-const host = opt("--host", process.env.POCKET_3DS_HOST ?? "192.168.8.159");
+const host = cmd === "emu" ? "127.0.0.1" : opt("--host", process.env.POCKET_3DS_HOST ?? "192.168.8.159");
+/** Azahar's home for `emu`: its settings, its SD card and the pairing key this tool wrote there. */
+const EMULATOR = join(DIR, "azahar");
+const emulated = host === "127.0.0.1";
 
 // Loaded by path at run time: PocketJS's client module is checked by PocketJS's own compiler settings.
 const clientModule: string = join(POCKETJS, "tools/3ds-runtime-client.ts");
@@ -87,7 +96,7 @@ cp /tmp/build/requiem.elf /tmp/build/requiem.map /requiem/.pocket-build/3ds/buil
 }
 
 async function connect(): Promise<Client> {
-  const keys = opt("--keys", join(POCKETJS, ".pocket/3ds/devices"));
+  const keys = opt("--keys", emulated ? join(EMULATOR, "keys") : join(POCKETJS, ".pocket/3ds/devices"));
   let devices: any[] = await discoverPocketRuntimes({ addresses: [host] });
   for (let attempt = 0; attempt < 3 && !devices.some((d) => d.address === host); attempt++) {
     await Bun.sleep(400);
@@ -140,7 +149,7 @@ async function session<T>(f: (c: Client) => Promise<T>): Promise<T> {
 
 /** Runs `f` holding the console's lease. A child process started with `lease.environment` shares it. */
 async function device<T>(f: (lease: { environment: NodeJS.ProcessEnv }) => Promise<T>): Promise<T> {
-  return await withDeviceLease("3ds:wire", f);
+  return await withDeviceLease(emulated ? "3ds:azahar" : "3ds:wire", f);
 }
 
 /** Sends the .3dsx and waits until the console reports this build, inside one lease. */
@@ -161,9 +170,71 @@ async function install(lease: { environment: NodeJS.ProcessEnv }, receipt: { bui
   return last;
 }
 
+/**
+ * Starts the built .3dsx in Azahar. The emulator has no headless mode and takes its whole user
+ * directory from $HOME, so it runs with a home of its own: the user's settings and system files
+ * copied, an empty SD card, and a pairing key so the dev wire listens on 127.0.0.1:8131.
+ */
+async function emulate() {
+  const app = process.env.AZAHAR || "/Applications/Azahar.app";
+  const binary = join(app, "Contents/MacOS/azahar");
+  const source = join(homedir(), "Library/Application Support/Azahar");
+  if (!existsSync(binary) || !existsSync(join(source, "config/qt-config.ini"))) throw new Error(`Azahar and its settings are needed (${app})`);
+  if (!existsSync(ARTIFACT)) throw new Error("build first: bun tools/n3ds.ts build");
+  const user = join(EMULATOR, "home/Library/Application Support/Azahar");
+  // Only the emulator this tool started: its command line names this checkout's artifact.
+  const stop = () => Bun.spawnSync(["pkill", "-9", "-f", `${binary} ${ARTIFACT}`]);
+  stop();
+  rmSync(EMULATOR, { recursive: true, force: true });
+  mkdirSync(join(user, "config"), { recursive: true });
+  mkdirSync(join(user, "sdmc/pocketjs/runtime"), { recursive: true });
+  mkdirSync(join(EMULATOR, "keys"), { recursive: true });
+  for (const directory of ["nand", "sysdata"]) if (existsSync(join(source, directory))) cpSync(join(source, directory), join(user, directory), { recursive: true });
+  const settings = readFileSync(join(source, "config/qt-config.ini"), "utf8").replace(/^check_for_update_on_start=.*$/m, "check_for_update_on_start=false");
+  writeFileSync(join(user, "config/qt-config.ini"), settings);
+  const token = Buffer.from(Uint8Array.from({ length: 32 }, (_, i) => i * 7 + 3)).toString("hex");
+  writeFileSync(join(user, "sdmc/pocketjs/runtime/dev.key"), token + "\n");
+  writeFileSync(join(EMULATOR, "keys/azahar.key"), token + "\n");
+  const log = join(EMULATOR, "console.log");
+  await $`open -n -a ${app} --env HOME=${join(EMULATOR, "home")} --stdout ${log} --stderr ${log} --args ${ARTIFACT}`;
+  try {
+    const end = Date.now() + Number(opt("--timeout", "90")) * 1000;
+    let last: any;
+    while (Date.now() < end) {
+      await Bun.sleep(1500);
+      try {
+        last = await session((c) => status(c));
+        if (last.stage === "running" || last.phase === "load-error") break;
+      } catch (e) {
+        last = { error: String(e) };
+      }
+    }
+    if (last?.stage !== "running") throw new Error(`the emulator did not reach the game: ${JSON.stringify(last)}`);
+    const words = opt("--ctl", "");
+    if (words) await session((c) => status(c, words));
+    await Bun.sleep(Number(opt("--seconds", "6")) * 1000);
+    const out = resolve(opt("--out", join(RECEIPTS, `emu-${Date.now()}.png`)));
+    mkdirSync(resolve(out, ".."), { recursive: true });
+    const [report, shot] = await session(async (c) => {
+      const report = await status(c);
+      const pending = c.waitForScreenshot();
+      await c.sendCtrl({ t: "screenshot", surface: "top" });
+      return [report, await pending];
+    });
+    await Bun.write(out, shot.png);
+    console.log(JSON.stringify(report, null, 1));
+    console.log(out);
+  } finally {
+    if (!argv.includes("--keep")) stop();
+  }
+}
+
 switch (cmd) {
   case "build":
     await build();
+    break;
+  case "emu":
+    await withDeviceLease("3ds:azahar", emulate);
     break;
   case "install": {
     const receipt = argv.includes("--no-build") ? JSON.parse(readFileSync(join(RECEIPTS, "build.json"), "utf8")) : await build();
@@ -273,6 +344,6 @@ switch (cmd) {
     });
     break;
   default:
-    console.log("usage: bun tools/n3ds.ts <build|install|status|ctl|capture|bench|look> [--host ADDRESS]");
+    console.log("usage: bun tools/n3ds.ts <build|install|status|ctl|capture|bench|look|emu> [--host ADDRESS]");
     process.exit(cmd ? 1 : 0);
 }

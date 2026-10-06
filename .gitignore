@@ -16,3 +16,6 @@ node_modules/
 /.pocket-build/
 
 .DS_Store
+
+# The Pocket Studio project this checkout uploads its packages to (pocket-studio register)
+.pocket-studio.json

@@ -46,12 +46,20 @@ use requiem_sim::fx::LIGHTS;
 use requiem_sim::math::*;
 use requiem_sim::skel::BONES;
 use psp::sys::*;
+use pocket_psp_ge::DisplayList;
 use psp::Align16;
 
 use crate::store;
 
 const LIST_WORDS: usize = 196_608;
-static mut LIST: Align16<[u32; LIST_WORDS]> = Align16([0; LIST_WORDS]);
+// sceGuStart writes the list through the uncached mirror, so the list has data-cache lines of its own. In a line
+// shared with a static the CPU writes through the cache, the line's write-back puts the frame before's first
+// commands, the frame buffer to draw into among them, over this frame's (pocket_psp_ge::list).
+static mut LIST: DisplayList<LIST_WORDS> = DisplayList::new();
+/// The list every frame is written into.
+fn display_list() -> *mut c_void {
+    DisplayList::as_mut_ptr(ptr::addr_of_mut!(LIST))
+}
 
 /// One frame buffer: 512 × 272 texels of 16 bits. The colour and depth buffers are all this size.
 pub const FB_BYTES: usize = 512 * 272 * 2;
@@ -378,7 +386,7 @@ impl Gfx {
         sceKernelDcacheWritebackAll();
 
         sceGuInit();
-        sceGuStart(GuContextType::Direct, ptr::addr_of_mut!(LIST.0) as *mut c_void);
+        sceGuStart(GuContextType::Direct, display_list());
         // 16-bit colour with ordered dither: half the memory traffic of 32-bit per pixel written.
         sceGuDrawBuffer(DisplayPixelFormat::Psm5650, ptr::null_mut(), 512);
         sceGuDispBuffer(480, 272, FB_BYTES as *mut c_void, 512);
@@ -849,7 +857,7 @@ impl Gfx {
         let lit = scene::cast(&game.sim, cam.eye, &mut cast).min(CAST);
         lap(0);
 
-        sceGuStart(GuContextType::Direct, ptr::addr_of_mut!(LIST.0) as *mut c_void);
+        sceGuStart(GuContextType::Direct, display_list());
         sceGuDepthMask(0);
         let fog_color = abgr(game.scene.fog_srgb());
         sceGuClearColor(fog_color);
