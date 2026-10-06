@@ -66,6 +66,17 @@ pub mod figure {
     pub const COUNT: u32 = 5;
 }
 
+/// How a figure carries the arms that hold its prop: where the elbows point.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Carry {
+    /// Elbows out from the body, toward a point fixed in the figure's frame: a knight in plate.
+    /// The knights' stored frames are sampled with this rule.
+    Wide,
+    /// Elbows hang down the trunk and behind it, in the chest's frame, and each hand turns on
+    /// the shaft until it continues its forearm: a figure in cloth.
+    Hang,
+}
+
 /// Joint positions in the parent's frame; the pelvis entry is its height above the feet.
 #[derive(Clone, Copy)]
 pub struct Skeleton {
@@ -74,6 +85,7 @@ pub struct Skeleton {
     pub tail: f32,
     /// The palm, in the hand's frame: where a prop's grip sits.
     pub palm: V3,
+    pub carry: Carry,
 }
 
 pub struct Build {
@@ -92,6 +104,7 @@ pub struct Build {
     /// Where a hair tail leaves the head (x is mirrored), and the length of a segment.
     pub tail_at: V3,
     pub tail: f32,
+    pub carry: Carry,
 }
 
 impl Skeleton {
@@ -121,12 +134,12 @@ impl Skeleton {
         }
         let palm = v3(0.0, -0.062 * b.fore / 0.25, -0.012);
         o[PROP] = palm;
-        Skeleton { offset: o, tail: b.tail, palm }
+        Skeleton { offset: o, tail: b.tail, palm, carry: b.carry }
     }
 
     /// The mage: 1.52 m, slight, with a head a little large for the body.
     pub fn mage() -> Skeleton {
-        Skeleton::build(&Build { pelvis: 0.82, spine: 0.085, chest: 0.135, neck: 0.215, head: 0.055, clav: (0.03, 0.165), shoulder: 0.118, upper: 0.225, fore: 0.21, hip: (0.078, -0.05), thigh: 0.365, shin: 0.345, tail_at: v3(0.118, 0.172, 0.052), tail: 0.22 })
+        Skeleton::build(&Build { pelvis: 0.82, spine: 0.085, chest: 0.135, neck: 0.215, head: 0.055, clav: (0.03, 0.165), shoulder: 0.118, upper: 0.225, fore: 0.21, hip: (0.078, -0.05), thigh: 0.365, shin: 0.345, tail_at: v3(0.118, 0.172, 0.052), tail: 0.22, carry: Carry::Hang })
     }
 
     /// A knight in plate: 1.84 m to the collar (there is no head), broad in the shoulder.
@@ -147,12 +160,13 @@ impl Skeleton {
             shin: 0.415,
             tail_at: v3(0.1, 0.1, 0.05),
             tail: 0.2,
+            carry: Carry::Wide,
         })
     }
 
     /// The demon: 1.6 m, slender; her tails are two long braids.
     pub fn demon() -> Skeleton {
-        Skeleton::build(&Build { pelvis: 0.875, spine: 0.09, chest: 0.14, neck: 0.225, head: 0.055, clav: (0.03, 0.17), shoulder: 0.12, upper: 0.235, fore: 0.22, hip: (0.082, -0.05), thigh: 0.39, shin: 0.375, tail_at: v3(0.1, 0.05, -0.078), tail: 0.2 })
+        Skeleton::build(&Build { pelvis: 0.875, spine: 0.09, chest: 0.14, neck: 0.225, head: 0.055, clav: (0.03, 0.17), shoulder: 0.12, upper: 0.235, fore: 0.22, hip: (0.082, -0.05), thigh: 0.39, shin: 0.375, tail_at: v3(0.1, 0.05, -0.078), tail: 0.2, carry: Carry::Hang })
     }
 
     pub fn of(kind: u32) -> Skeleton {

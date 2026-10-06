@@ -4,7 +4,7 @@ A crowd-battle action game for the PS Vita, the PSP and the Nintendo 3DS: at nig
 
 It plays like a crowd-battle action game. □ chains five strikes of the staff; △ after `n` strikes casts the spell of that step; ○ with a full gauge undoes the binding on every knight around her. A strike that lands holds the frame for a few ticks before anything moves again.
 
-This repository is private. The game's packages and its browser version are published on Pocket Studio.
+This repository is private. The game's packages and its browser version are published on Pocket Studio (https://studio.pocket.nexus), where its members download the packages ([Releases](#releases)).
 
 | | Screen | Renderer | Measured |
 | --- | --- | --- | --- |
@@ -47,6 +47,7 @@ It is night. The moon is low in the north, ahead of the mage, drawn large; the s
 `requiem_sim::Sim::tick` advances 1/60 s.
 
 - **Moves are data** (`moves.rs`): a length in ticks, the tick each strike lands and its shape (a sector, a lane, a disc), its damage, push and lift, the ticks it freezes the frame, the first tick a buffered input may cancel it, and the move a light or a heavy input leads to. A press waits up to 16 ticks for a move to accept it.
+- **Her arms follow the staff.** A key says where her right hand is, where on the shaft it holds (`Prop.slide`) and which way the staff's head points; the left hand holds below it or goes free. The solver (`anim.rs`) hangs each elbow down her trunk, in the chest's frame, so it follows a twist of the trunk, and turns each hand on the shaft until it continues its forearm. At ease she holds the staff upright, 13 cm above its middle, with the forearm level; running and hovering she carries it at its middle beside her hip with the arm let down; behind the barrier it is level across her chest with a hand before each shoulder.
 - **The freeze.** A strike that lands holds the mage and every knight it struck for 3 to 16 ticks; a struck knight keeps its frame and shivers, then flies. The rest of the field moves on. Inputs pressed during the hold are kept.
 - **The spells.** △ alone: a beam, a lane 30 m long. After one to four strikes: a rising burst that lifts what stands around her, lightning in a fan, fire as a burst ahead, and a volley of ten homing bolts. ✕ evades; L raises the barrier; R hovers at 15 m/s.
 - **The army** takes turns: three knights at most wind up or strike at once; the rest stand off in a loose ring. At most **360 knights are out of formation at once** (`Crowd::free_cap`; a host sets it lower): a cohort that would pass it holds its ranks at the edge of the fight until knights fall. A knight out of formation is what a tick costs, so the cap bounds the tick when the mage stands still and the whole army closes in. A blow costs her 6 to 11 of 1 000 and staggers her when she is not in a move of her own; a knight falls to two strikes of the staff. A struck knight staggers, is driven back, or leaves the ground; one whose binding is undone falls where it stands, and what leaves it rises as a pale flame.
@@ -98,7 +99,7 @@ The StageIR keeps the ground apart from what stands on it (three ground layers, 
 - **Spell light on the field.** The bake stores tint × light. A mesh within reach of a spell's light draws with a second program that raises the baked colour by `sqrt(1 + cast / reference)` per vertex; the rest draw with the plain one.
 - **The freeze, on screen.** While a heavy strike holds the frame the composite hardens the contrast, drains the colour, lifts the bloom and smears the frame toward its centre.
 - **Post-processing**: the scene renders to a 960 × 544 target with 4× MSAA; a quarter-size chain keeps what is bright, blurs it and smears it away from the moon; one pass composes and grades.
-- **Programs** compile on the device through SceShaccCg on first run and are cached by source hash.
+- **Programs** compile on the device through SceShaccCg on first run and are cached by source hash; the packaged build ships the set a pass on a console collected ([Releases](#releases)).
 
 Measured on a PS Vita (PCH-2000, CPU 444 MHz, GPU 222 MHz), development build in Pocket Devkit, the autopilot fighting (`bun tools/requiem.ts bench --seconds 90`):
 
@@ -193,6 +194,8 @@ bun tools/requiem.ts serve             # USB host for the console (keep running)
 bun tools/requiem.ts native            # sync the pack, build, replace the binary in Pocket Devkit
 bun tools/requiem.ts status | capture --out f.png | bench --seconds 90
 bun tools/requiem.ts ctl '{"auto":false,"view":{"pos":[0,14,500],"target":[0,0,300],"fov":58}}'
+bun tools/requiem.ts vpk | push-vpk    # standalone PKRQ00001 package; send it to ux0:data/pocket-requiem/
+bun tools/requiem.ts programs          # the console compiles every program in one run: the set a release carries
 
 # PSP (PSPLINK)
 bun tools/requiem.ts cook --profile psp30
@@ -207,6 +210,10 @@ bun tools/requiem.ts cook --profile n3ds30
 bun tools/n3ds.ts install              # build in the devkitARM container, send, start
 bun tools/n3ds.ts status | capture --out f.png | bench --seconds 90 [--install] | ctl "auto=1"
 bun tools/n3ds.ts look --install --lead 14 --ctl "auto=0" --frames 5 --every 11   # one lease: install, run, steer, capture
+bun tools/n3ds.ts emu [--seconds 6] [--out f.png]   # the built .3dsx in Azahar
+
+# Packages for Pocket Studio (Releases, below)
+bun tools/release.ts [--targets vita,psp,3ds] [--no-build] [--upload]
 
 cargo run --release -p requiem-handheld --example probe -- .pocket-build/stage/the-field.psp30.pack 90
 cargo run --release -p requiem-handheld --example siege -- .pocket-build/stage/the-field.n3ds30.pack 120   # she stands still
@@ -221,13 +228,39 @@ bun tools/listing.ts [--upload]        # the listing's clips, stills and share p
 
 cargo test --workspace
 cargo test --manifest-path wgpu/Cargo.toml
-bun test ./tools                       # launcher art, the browser page's devices, the listing's words
+bun test ./tools                       # launcher art, the check on the Vita's programs, the browser page's devices, the listing's words
 cargo run --release -p requiem-sim --bin harness -- .pocket-build/stage/ir/stage.rqsw 120
 ```
 
 PSP and 3DS control words (`Game::control`): `auto hud stats world crowd mage fx govern` take 0 or 1; `lodNear lodMid lodFar repeat option pace` a number; `reset=1`; `view=px,py,pz,tx,ty,tz,fov` or `view=off`.
 
 Vita `ctl` keys: `auto`, `reset`, `view {pos, target, fov}`, `pace` (refreshes per frame), `profile`, `world`, `crowd`, `mage`, `fx`, `crowdScale`, `crowdBudget`, `farFrom`, `lodNear`, `lodMid`, `hud`, `stats`, `post {…}`, `fetch`.
+
+## Releases
+
+`bun tools/release.ts` builds every device's package from the checked-out commit and writes them to `dist/release/`, which Git ignores:
+
+```
+bun tools/release.ts [--targets vita,psp,3ds] [--out dist/release] [--vita-gxp DIR] [--no-build] [--upload]
+```
+
+| Target | File | Holds |
+| --- | --- | --- |
+| `vita` | `pocket-requiem-<version>.vpk` | the program, the `vita30` pack and the programs a console compiled |
+| `psp` | `pocket-requiem-<version>-psp.zip` | `PSP/GAME/PocketRequiem/` for the root of a Memory Stick: `EBOOT.PBP` and the `psp30` pack |
+| `3ds` | `pocket-requiem-<version>.3dsx` | the program, with the `n3ds30` pack in its ROMFS |
+
+**It needs the toolchains of the three device tools** ([Commands](#commands)) and nothing else: the tool builds the simulation's wasm, exports the stage from its seed, and for each target compiles the profile's pack with this commit's compiler and runs the build a developer runs (`tools/requiem.ts vpk`, `tools/psp.ts package`, `tools/n3ds.ts build`). The version is the one in `package.json`. A target that fails is listed with its error, the other targets build, and the exit status is 1. Each target's build output is in `.pocket-build/release/logs/`.
+
+`release.json`, beside the packages, records **the commit, the version, each package's size and SHA-256, the SHA-256 of the exported stage and of each pack, the Vita programs' list and the build that compiled them, and the toolchains**: the pinned PocketJS revision, the `rustc` of each target, VitaSDK's compiler and `version_info.txt`, the PSP SDK's hash and the devkitARM image's digest.
+
+**The Vita's programs are an input, collected by a pass on a console.** SceShaccCg runs on a console, so the package carries `.gxp` files a console compiled. The runtime asks for every program it has while it loads (17 programs, 26 sources: the field's two, the army's two, the figures', the effects' and the post-processing chain's); no setting adds one later, and the multisampling choice changes how a program is patched, not its source. `bun tools/requiem.ts programs` builds the development build from the checkout, starts it in Pocket Devkit with `{"programs": "fresh"}` in `boot.json`, so it reads no program from the card and compiles each one, waits until it runs, and writes the console's list, the `.gxp` files and `coverage.json` to `.pocket-build/vita-programs/`. `coverage.json` records the build's id, the pack's SHA-256, the SHA-256 of `vita/shaders`, and how many programs the build asked for and compiled. **The release tool refuses a set without that record**, and one whose record names other shader sources or another pack than the one it is packaging (`coverageFault` in `tools/vita.ts`, tested by `tools/vita-programs.test.ts`). The numeric `#define`s a program starts with come from the pack's scene record and its army header, which is why the record names the pack. `--vita-gxp DIR` names another directory with the same three kinds of file.
+
+**All three packages are byte-identical across two builds of a commit on one computer.** The tool writes the `.zip` and the `.vpk` itself: entries in the order of their names (in the `.vpk`, `sce_sys/param.sfo` and `eboot.bin` first, as `vita-pack-vpk` has them), every date 1980-01-01, modes 0644 and 0755, deflate at level 6. A development build of the Vita program carries a random build id. For a release the tool names it (`POCKET_RELEASE_BUILD`, which `tools/vita.ts` reads): 32 hex digits from the commit, the `vita30` pack's hash and the hash of the programs' list; `release.json` records it.
+
+**Packages go to Pocket Studio and to no page on GitHub.** `--upload` runs `pocket-studio package <file> --target <id> --version <version>` for each package from the repository's root, where `pocket-studio register --title "Pocket Requiem"` wrote `.pocket-studio.json` (ignored by Git). It refuses a checkout with uncommitted changes. It does not register the game, publish it or change its address; when the link file is missing it prints the commands that write it. `--no-build --upload` sends the packages `release.json` lists, after checking their hashes.
+
+Starting a package without a development link: `bun tools/psp.ts emu --standalone` and `bun tools/n3ds.ts emu` run the built PSP folder and `.3dsx` in PPSSPPHeadless and Azahar, `bun tools/n3ds.ts install --no-build` sends the `.3dsx` to a console over the wire, and `bun tools/requiem.ts push-vpk dist/release/pocket-requiem-<version>.vpk` copies the `.vpk` to `ux0:data/pocket-requiem/` through the running development build, for VitaShell to install.
 
 ## Layout
 
@@ -248,13 +281,14 @@ Vita `ctl` keys: `auto`, `reset`, `view {pos, target, fov}`, `pace` (refreshes p
 | `profiles/` | compile profiles |
 | `wgpu/` | the browser version: the wgpu renderer (`src/render`, `src/shaders`), the shell (`src/app.rs`), the page (`page/`), frames to a file (`src/bin/shot.rs`) |
 | `listing/` | the words of the game's listing on Pocket Studio |
-| `tools/` | `requiem.ts`, `vita.ts`, `psp.ts`, `n3ds.ts`, `bench.ts`, `shot.ts`, `livearea.ts`, `wgpu.ts`, `wgpu-check.ts`, `listing.ts` |
+| `tools/` | `requiem.ts`, `vita.ts`, `psp.ts`, `n3ds.ts`, `bench.ts`, `shot.ts`, `livearea.ts`, `release.ts`, `wgpu.ts`, `wgpu-check.ts`, `listing.ts` |
 
 ## Not done
 
 - **PSP and 3DS, by eye.** Both are measured and captured; nobody has played either. On the PSP most knights within 34 m are the 122-triangle figure of prisms (corners shared so the light rounds them, a collar where the head would be), and two to nine are the 704-triangle mesh: the GE has no room for more. The PSP's mage is 6 158 triangles and the 3DS's 8 484 (42 694 on the Vita). Neither has post-processing; a heavy strike's freeze whitens the frame through the interface.
 - The 3DS plays sound through CSND (no DSP firmware dump on the test console); the PSP at 11 kHz. Neither has been heard.
 - The PSP has been run from PSPLINK only, on a console with 56 MB free; `bun tools/psp.ts package` writes the Memory Stick layout, and the 17.4 MB it uses fits a 24 MB PSP-1000 on paper.
+- Between strikes (the `stance` key) her left hand stops 9 cm short of the staff with the arm straight: the lower shaft is on her right side, past that arm's reach. In the aim of the beam, the lightning and the volley her right forearm lies along the staff, which bends that wrist about 100°.
 - **No ending.** The demon stands on her rise with the scales raised (`demon.rs`, `web/src/model/demon.ts`) and kneels when 1 000 knights are undone; the stage shows a line of text and nothing else.
 - No grass on the field; the ground is one texture and the bake.
 - The sound has not been heard by a person on the console. Hand feel (the freeze lengths, the cancel windows, the camera) is set from the autopilot and from captures, not by play.

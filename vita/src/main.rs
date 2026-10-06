@@ -390,7 +390,8 @@ fn main() {
             let scene = Scene::from_meta(&meta);
 
             loading(font, &mut dev, &mut frame_no, &["Preparing programs".into()]);
-            let mut gpu = Gpu::new(live)?;
+            // {"programs": "fresh"} is the pass that collects a package's programs (`programs` in tools/vita.ts).
+            let mut gpu = Gpu::new(live, live && boot["programs"] == "fresh")?;
             let fog = scene.fog_srgb();
             let crowd_head: pack::CrowdHeader = pack::read(p.section(pack::CRWD)?, 0).ok_or("crowd header")?;
             let defines = format!(
@@ -728,7 +729,7 @@ fn main() {
                     "fx": {"live": fstats.live, "draws": fstats.draws, "tris": fstats.tris},
                     "settings": {"auto": set.auto, "lodNear": set.lod_near, "lodMid": set.lod_mid, "crowdScale": set.crowd_scale, "cullCw": set.cull_cw, "profile": set.profile, "world": set.world, "crowd": set.crowd, "mage": set.mage, "post": {"bloom": set.look.bloom, "rays": set.look.rays, "speed": set.look.speed}},
                     "player": {"pos": [sim.p.pos.x, sim.p.pos.y, sim.p.pos.z], "act": sim.p.act, "move": sim.p.mv, "hp": sim.p.hp, "mana": sim.p.mana, "kos": sim.p.kos, "chain": sim.p.chain, "tick": sim.tick, "stop": sim.stop},
-                    "programs": {"compiled": gpu.compiled, "cached": gpu.cached},
+                    "programs": {"compiled": gpu.compiled, "cached": gpu.cached, "requested": gpu.manifest.len(), "fresh": gpu.fresh},
                     "msaa": samples,
                     "memory": {"geometry": world.bytes, "crowd": crowd.bytes, "vram": vram.reserved()},
                     "clockMhz": [scePowerGetArmClockFrequency(), scePowerGetGpuClockFrequency()],
