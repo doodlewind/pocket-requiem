@@ -4,6 +4,7 @@
 /psp/target/
 /n3ds/core/target/
 /n3ds/build/
+/wgpu/target/
 /dist/
 node_modules/
 /web/dist/
@@ -17,5 +18,6 @@ node_modules/
 
 .DS_Store
 
-# The Pocket Studio project this checkout uploads its packages to (pocket-studio register)
+# The Pocket Studio project this checkout uploads its packages, its browser version and its listing to
+# (pocket-studio register): it holds no token
 .pocket-studio.json

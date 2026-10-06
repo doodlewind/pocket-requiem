@@ -10,7 +10,9 @@
     "sim": "bun tools/requiem.ts sim",
     "dev": "bun tools/requiem.ts sim && bun run --cwd web dev",
     "typecheck": "bunx tsc --noEmit -p web",
-    "test": "cargo test --workspace && bun test ./tools"
+    "wgpu": "bun tools/wgpu.ts",
+    "listing": "bun tools/listing.ts",
+    "test": "cargo test --workspace && cargo test --manifest-path wgpu/Cargo.toml && bun test ./tools"
   },
   "devDependencies": {
     "@types/bun": "^1.4.2",

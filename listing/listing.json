@@ -1,0 +1,19 @@
+{
+  "tagline": "One mage against a headless army, on a field at night.",
+  "description": [
+    "Pocket Requiem is a crowd-battle action game for the PS Vita, the PSP and the Nintendo 3DS. At night, on a barren field two kilometres across, a mage meets the army a demon holds: 4,053 headless knights in 133 cohorts, on one field with no loading between them.",
+    "A strike of the staff chains up to five times, and a spell follows the strike it is cast after: a beam, a rising burst, lightning in a fan, fire ahead, a volley of ten bolts. A strike that lands holds the frame for a few ticks before anything moves again. With a full gauge she undoes the binding on every knight around her.",
+    "The army is compiled. Every knight's motion is stored in the game's pack as placed frames, and a console draws a knight as a blend of two of them, so a PS Vita shows up to 1,750 knights in a frame at 30 frames a second.",
+    "The browser version runs the same simulation and draws the PS Vita's pack with the PS Vita's passes. An autopilot plays until a button is pressed."
+  ],
+  "media": [
+    {"kind": "video", "file": "first-contact.mp4", "poster": "first-contact.jpg", "width": 960, "height": 544, "seconds": 20, "from": "browser", "caption": "The mage reaches the first cohorts: strikes of the staff, the circle at its head, the beam, and the first binding undone."},
+    {"kind": "video", "file": "spells.mp4", "poster": "spells.jpg", "width": 960, "height": 544, "seconds": 15, "from": "browser", "caption": "Fire ahead, a volley of bolts, strikes of the staff, then a pillar of light and the gold dome that undoes every binding inside it."},
+    {"kind": "video", "file": "the-army.mp4", "poster": "the-army.jpg", "width": 960, "height": 544, "seconds": 12, "from": "browser", "caption": "The field before the fight: the eye rises over a cohort of the first rank and goes north above the army, toward the moon."},
+    {"kind": "image", "file": "pillar.jpg", "width": 960, "height": 544, "from": "browser", "caption": "The gauge is full: a pillar of light stands on a gold circle among the knights, before their binding comes undone."},
+    {"kind": "image", "file": "fire.jpg", "width": 960, "height": 544, "from": "browser", "caption": "Fire lights the ground and the knights round it; the field's other light is the moon."},
+    {"kind": "image", "file": "undoing.jpg", "width": 960, "height": 544, "from": "browser", "caption": "The undoing: a gold dome over the mage, and the knights inside it fall where they stand."},
+    {"kind": "image", "file": "press.jpg", "width": 960, "height": 544, "from": "browser", "caption": "The mage stands still and the army closes round her: 1,700 knights in view."}
+  ],
+  "card": "card.jpg"
+}
