@@ -13,8 +13,9 @@
 // Vita's pack) from a run of the simulation with nothing held on the pad: the
 // autopilot plays, or the mage stands still, and words hold the eye. A run
 // is frames of a thirtieth of a second, two ticks each, so a clip has no
-// dropped frame and a second recording makes the same pictures. ffmpeg
-// encodes them.
+// dropped frame and a second recording is the same run. (Two recordings are
+// not the same bytes: in a frame or two of a clip the stars differ by a few
+// 255ths. The stills come out the same.) ffmpeg encodes them.
 //
 // No media file goes to Git: dist/ is ignored.
 
@@ -107,7 +108,8 @@ function words(): Listing {
     if (m.kind === "video") {
       const seconds = take ? (take.to - (take.from ?? 0)) / FPS : 0;
       if (!m.file.endsWith(".mp4") || !m.poster || !name.test(m.poster) || take?.poster === undefined) wrong.push(`${m.file}: a clip is an .mp4 with a poster`);
-      if (m.seconds !== seconds || !within(seconds, LIMITS.seconds)) wrong.push(`${m.file}: the take is ${seconds} s`);
+      // (the Studio reads each clip and takes a whole number of seconds within one of its length)
+      if (m.seconds !== seconds || !Number.isInteger(seconds) || !within(seconds, LIMITS.seconds)) wrong.push(`${m.file}: the take is ${seconds} s, and a clip's length is a whole number of seconds`);
     } else if (m.kind !== "image" || m.file.endsWith(".mp4")) wrong.push(`${m.file}: kind "${m.kind}"`);
   }
   if (listing.media[0]?.kind !== "video") wrong.push("the lead is not a clip");

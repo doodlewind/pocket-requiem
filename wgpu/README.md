@@ -135,4 +135,5 @@ Chrome 154 (headless, WebGPU on the Apple GPU through Metal) on an M3 Max, the p
 - **The first set is 25.0 MB.** The simple meshes, the far meshes and the army's three coarser levels are 12 MB of it; reads of 1 MiB that straddle a part that could wait bring the rest.
 - No other browser, no other GPU and no phone itself has drawn it. The sound has been checked for being there, not heard by a person.
 - No gamepad. The page reads keys, and the shell's keys under a pointer or a finger.
+- **Two runs of `shot.rs` are not the same bytes.** The simulation and what a frame draws are the same; in about one frame in a hundred the stars' pixels differ between two runs by up to 12 of 255. The cause is not found.
 - The readouts on the 3DS's screen are the PS Vita's glyphs at 0.44 of their size; the console's own are cut for its screen.
