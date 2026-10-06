@@ -4,7 +4,7 @@ A crowd-battle action game for the PS Vita, the PSP and the Nintendo 3DS: at nig
 
 It plays like a crowd-battle action game. □ chains five strikes of the staff; △ after `n` strikes casts the spell of that step; ○ with a full gauge undoes the binding on every knight around her. A strike that lands holds the frame for a few ticks before anything moves again.
 
-This repository is private, and the game is not for distribution.
+This repository is private. The game's packages and its browser version are published on Pocket Studio.
 
 | | Screen | Renderer | Measured |
 | --- | --- | --- | --- |
@@ -20,7 +20,9 @@ The repository holds the whole path from authoring to hardware:
 - **`vita/`** draws the pack and runs the simulation at two ticks per frame.
 - **`crates/requiem-handheld`** is what the PSP and the 3DS share: the ground built from two grids, the army's draw list and its far ranks, the effects evaluated into vertices, the sky, the interface and the loop round the simulation. **`psp/`** and **`n3ds/`** are the two renderers over it.
 
-PocketJS (pinned in `vendor/pocketjs`) supplies the device toolchains, the dev hosts, the GXM kernel, packaging and the app icon.
+- **`wgpu/`** is the game in a browser tab: the same simulation compiled to wasm32, the PS Vita's pack read over HTTP, and the PS Vita's passes drawn with wgpu over WebGPU, in PocketJS's Pocket3D player.
+
+PocketJS (pinned in `vendor/pocketjs`) supplies the device toolchains, the dev hosts, the GXM kernel, packaging, the app icon, and the browser kernel with its player.
 
 ## The army: stored frames instead of skeletons
 
@@ -135,6 +137,18 @@ With the mage standing still for a minute and the army closed round her (`bun to
 
 The PSP's GE is the limit: with 12 000 triangles of knights' meshes and longer distances it finished 13 of 2 700 frames late, so the profile's distances and the knights' budget (10 500 triangles of meshes) are set below that; far figures are untextured and unlit and cost it little. The PSP uses 17.4 MB after loading. Its CPU needed the simulation 2.8 times faster than it was (18.5 ms a frame to 6.6 ms): knights on their feet step every other tick (every machine shows a frame per two ticks), the neighbour grid is 1 024 cells of 16 bits (the 4 096-cell tables were twice the PSP's data cache, walked every tick), and the synthesizer reads sines and decays from tables. Those changes are in `requiem-sim`, so the Vita's simulation went from 2.4 ms to 1.4 ms a frame.
 
+## In a browser tab
+
+`wgpu/` is a fourth runtime: **`requiem-sim` compiled to wasm32, the PS Vita's pack (`vita30`) as it is, and the PS Vita's programs in WGSL**, drawn with wgpu over WebGPU. The page is PocketJS's Pocket3D player: the game in the shell of a PS Vita, a PSP or a Nintendo 3DS, the shell's keys as the controls, and the way to the game's card in Pocket Studio. The readouts are drawn by the renderer, as on the consoles, and the sound is the simulation's synthesizer.
+
+- **Whatever device the page shows, the pack and the programs are the PS Vita's.** A device changes the screen's size, whether the frame goes through the PS Vita's chain, the cap on knights out of formation, and the buttons. The player says for each device how its own build differs.
+- **The pack is read whole before the fight starts**: 59.6 MB in ranges of 2 MiB, four side by side, with the amount read on the canvas.
+- **The same renderer runs on the build machine** (`wgpu/src/bin/shot.rs`), where it writes frames to a file. `bun tools/listing.ts` records the game's listing for Pocket Studio with it.
+
+Measured in Chrome 154 on an M3 Max: 30 frames a second on each device, a frame costing 0.26 ms with 1 654 knights and 321 000 triangles in view; the first frame of the fight 2.4 s after the page's start with the pack at hand, 32 s over a line of 16 Mbit/s. [`wgpu/README.md`](wgpu/README.md) has the mechanisms, the differences from the PS Vita's renderer and the measurements.
+
+The three.js reference in `web/` is where the stage is authored. It is not the browser version and is not published.
+
 ## In the launcher
 
 The icon in each console's launcher is **the Pocket3D icon, read from the PocketJS checkout** (`vendor/pocketjs/engine/pocket3d/icon/`) when the package is built. This repository holds no icon file; the launcher's title string, "Pocket Requiem", names the game.
@@ -197,8 +211,17 @@ bun tools/n3ds.ts look --install --lead 14 --ctl "auto=0" --frames 5 --every 11 
 cargo run --release -p requiem-handheld --example probe -- .pocket-build/stage/the-field.psp30.pack 90
 cargo run --release -p requiem-handheld --example siege -- .pocket-build/stage/the-field.n3ds30.pack 120   # she stands still
 
+# A browser tab (wgpu over WebGPU), and frames on this machine's GPU
+bun tools/wgpu.ts cook                 # the PS Vita's pack and the 3DS's map of the field
+bun tools/wgpu.ts serve                # build, then http://127.0.0.1:8802/
+bun tools/wgpu.ts shot --frames 300 --out a.png [--shape psp] [--words "auto=0 view=…"]
+bun tools/wgpu.ts check [--dist]       # Chrome: every device from the title card into the fight
+bun tools/wgpu.ts dist                 # the directory `pocket-studio site` deploys
+bun tools/listing.ts [--upload]        # the listing's clips, stills and share picture → dist/listing/
+
 cargo test --workspace
-bun test ./tools                       # launcher art: no icon file in this repository, every build reads PocketJS's
+cargo test --manifest-path wgpu/Cargo.toml
+bun test ./tools                       # launcher art, the browser page's devices, the listing's words
 cargo run --release -p requiem-sim --bin harness -- .pocket-build/stage/ir/stage.rqsw 120
 ```
 
@@ -223,7 +246,9 @@ Vita `ctl` keys: `auto`, `reset`, `view {pos, target, fov}`, `pace` (refreshes p
 | `psp/` | PSP app: the GE renderer, the PSPLINK mailbox |
 | `n3ds/` | 3DS app: C host and PICA programs (`src/`), the shared crate behind a C interface (`core/`) |
 | `profiles/` | compile profiles |
-| `tools/` | `requiem.ts`, `vita.ts`, `psp.ts`, `n3ds.ts`, `bench.ts`, `shot.ts`, `livearea.ts` |
+| `wgpu/` | the browser version: the wgpu renderer (`src/render`, `src/shaders`), the shell (`src/app.rs`), the page (`page/`), frames to a file (`src/bin/shot.rs`) |
+| `listing/` | the words of the game's listing on Pocket Studio |
+| `tools/` | `requiem.ts`, `vita.ts`, `psp.ts`, `n3ds.ts`, `bench.ts`, `shot.ts`, `livearea.ts`, `wgpu.ts`, `wgpu-check.ts`, `listing.ts` |
 
 ## Not done
 
@@ -235,5 +260,6 @@ Vita `ctl` keys: `auto`, `reset`, `view {pos, target, fov}`, `pace` (refreshes p
 - The sound has not been heard by a person on the console. Hand feel (the freeze lengths, the cancel windows, the camera) is set from the autopilot and from captures, not by play.
 - The army's damage and turn-taking are set so that the autopilot does not fall in five minutes of the harness; they have not been tuned by play.
 - The reference draws no post-processing; the look of the console's frame is checked on the console.
+- **The browser version** reads its pack whole before the first frame (32 s on a line of 16 Mbit/s), reads no gamepad, and has been drawn by Chrome on one machine's GPU and by no other browser. Its PSP and 3DS screens draw the PS Vita's army at those sizes, not those consoles' own.
 - The Vita reads the pack whole into memory before it is uploaded; a section-by-section loader would halve the peak.
 - The 3DS core links with thin link-time optimization: the full pass fails to load the simulation's bitcode with that toolchain's nightly. `cargo test --release` fails to link the simulation's two binaries for the same family of reason; `cargo test` and `cargo run --release` work.

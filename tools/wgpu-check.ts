@@ -183,6 +183,21 @@ export async function check({ origin, directory, seconds, headed, deployed, open
       report.withoutWebGPU = await page.locator("[data-pocket-say]").textContent();
       await context.close();
     }
+    // The first picture over a line of 16 Mbit/s with 40 ms of latency (Chrome's own throttle), nothing cached:
+    // the pack is read whole before the fight starts.
+    {
+      const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+      const v = await visit("", context);
+      const line = await context.newCDPSession(v.page);
+      await line.send("Network.enable");
+      await line.send("Network.setCacheDisabled", { cacheDisabled: true });
+      await line.send("Network.emulateNetworkConditions", { offline: false, latency: 40, downloadThroughput: 2_000_000, uploadThroughput: 1_000_000 });
+      await v.page.reload();
+      await v.up();
+      const times = (await v.page.evaluate("({ firstFrame: pocketRequiem.firstFrame, firstGame: pocketRequiem.firstGame })")) as { firstFrame: number; firstGame: number };
+      report.slowLine = { firstFrameMs: Math.round(times.firstFrame), firstGameMs: Math.round(times.firstGame) };
+      await context.close();
+    }
     // What the page told its host: once a visit, with the device it opened as (a host that names an address).
     report.opened = deployed ? { heard: opens.length } : { heard: opens.length, first: opens[0]?.query ?? "" };
   } finally {
