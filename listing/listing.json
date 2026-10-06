@@ -9,7 +9,7 @@
   "media": [
     { "kind": "video", "file": "first-contact.mp4", "poster": "first-contact.jpg", "width": 960, "height": 544, "seconds": 20, "from": "browser", "caption": "The mage reaches the first cohorts: strikes of the staff, the circle at its head, the beam, and the first binding undone." },
     { "kind": "video", "file": "spells.mp4", "poster": "spells.jpg", "width": 960, "height": 544, "seconds": 15, "from": "browser", "caption": "Fire ahead, the beam through a rank, a pillar of light, then the gold dome that undoes the binding on every knight inside it." },
-    { "kind": "video", "file": "the-army.mp4", "poster": "the-army.jpg", "width": 960, "height": 544, "seconds": 12, "from": "browser", "caption": "The field before the fight: cohorts of eleven files by twelve ranks under the moon, seen from twelve metres up." },
+    { "kind": "video", "file": "the-army.mp4", "poster": "the-army.jpg", "width": 960, "height": 544, "seconds": 12, "from": "browser", "caption": "The field before the fight: the eye rises over a cohort of the first rank and goes north above the army, toward the moon." },
     { "kind": "image", "file": "circle.jpg", "width": 960, "height": 544, "from": "browser", "caption": "The six-petalled circle at the staff's head as the beam leaves it." },
     { "kind": "image", "file": "fire.jpg", "width": 960, "height": 544, "from": "browser", "caption": "Fire lights the ground and the knights round it; the field's other light is the moon." },
     { "kind": "image", "file": "undoing.jpg", "width": 960, "height": 544, "from": "browser", "caption": "The undoing: a gold dome over the mage, and the knights inside it fall where they stand." },

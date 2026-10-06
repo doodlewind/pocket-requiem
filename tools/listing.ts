@@ -50,18 +50,19 @@ interface Take {
 // below were chosen by looking at that run (`--sheet` tiles one for choosing again).
 const READOUTS = "hint=0";
 const TAKES: Record<string, Take> = {
-  // From the run toward the first cohorts to the first undoing.
-  "first-contact.mp4": { words: READOUTS, from: 255, to: 855, poster: 423 },
+  // From the run toward the first cohorts, through the first strikes and spells, to the first undoing.
+  "first-contact.mp4": { words: READOUTS, from: 150, to: 750, poster: 414 },
   // Fire, the beam, the pillar, the dome.
   "spells.mp4": { words: READOUTS, from: 1050, to: 1500, poster: 1087 },
-  // The mage stands where the fight starts; the eye goes north over the first cohorts, toward the moon.
-  "the-army.mp4": { words: "auto=0 hud=0", from: 0, to: 360, poster: 200, path: [[0, 0, 12, 468, 0, 9, 0, 45], [360, 0, 15, 318, 0, 12, 0, 45]] },
-  "circle.jpg": { words: READOUTS, to: 423 },
+  // The mage stands where the fight starts; the eye rises over the first rank's middle cohort and goes north
+  // above the ones behind it, toward the moon.
+  "the-army.mp4": { words: "auto=0 hud=0", from: 0, to: 360, poster: 110, path: [[0, 10, 3, 432, 2, 1.5, 394, 50], [360, 0, 8, 372, -10, 4, 280, 50]] },
+  "circle.jpg": { words: READOUTS, to: 414 },
   "fire.jpg": { words: READOUTS, to: 1087 },
   "undoing.jpg": { words: READOUTS, to: 1443 },
   // (the autopilot kills too fast to show a press of knights: she stands still from 14 s on)
   "press.jpg": { words: READOUTS, at: [[420, "auto=0"]], to: 1290 },
-  "card.jpg": { words: "hud=0", to: 423, size: [1200, 630] },
+  "card.jpg": { words: "hud=0", to: 414, size: [1200, 630] },
 };
 
 /** The limits of a listing (the contract between the Studio and the game repositories, version 1). */
