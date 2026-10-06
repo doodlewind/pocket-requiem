@@ -4,7 +4,7 @@ A crowd-battle action game for the PS Vita, the PSP and the Nintendo 3DS: at nig
 
 It plays like a crowd-battle action game. □ chains five strikes of the staff; △ after `n` strikes casts the spell of that step; ○ with a full gauge undoes the binding on every knight around her. A strike that lands holds the frame for a few ticks before anything moves again.
 
-The source is public at https://github.com/doodlewind/pocket-requiem, and anyone with a Pocket Studio account can remix the game ([Remixing this game](#remixing-this-game)). The game's packages and its browser version are published on Pocket Studio (https://studio.pocket.nexus), where its members download the packages ([Releases](#releases)).
+The source is public at https://github.com/doodlewind/pocket-requiem, and anyone with a Pocket Studio account can remix the game ([Remixing this game](#remixing-this-game)). It plays in a browser at [requiem.studio.pocket.nexus](https://requiem.studio.pocket.nexus). Its page on Pocket Studio, [studio.pocket.nexus/games/requiem](https://studio.pocket.nexus/games/requiem), has recordings and the packages for each device, which members download ([Releases](#releases)).
 
 | | Screen | Renderer | Measured |
 | --- | --- | --- | --- |
