@@ -225,6 +225,7 @@ bun tools/wgpu.ts shot --frames 300 --out a.png [--shape psp] [--words "auto=0 v
 bun tools/wgpu.ts check [--dist]       # Chrome: every device from the title card into the fight
 bun tools/wgpu.ts dist                 # the directory `pocket-studio site` deploys
 bun tools/listing.ts [--upload]        # the listing's clips, stills and share picture → dist/listing/
+bun tools/listing.ts --words           # dist/listing/listing.json from the words, for the pictures already there
 
 cargo test --workspace
 cargo test --manifest-path wgpu/Cargo.toml
@@ -280,7 +281,7 @@ Starting a package without a development link: `bun tools/psp.ts emu --standalon
 | `n3ds/` | 3DS app: C host and PICA programs (`src/`), the shared crate behind a C interface (`core/`) |
 | `profiles/` | compile profiles |
 | `wgpu/` | the browser version: the wgpu renderer (`src/render`, `src/shaders`), the shell (`src/app.rs`), the page (`page/`), frames to a file (`src/bin/shot.rs`) |
-| `listing/` | the words of the game's listing on Pocket Studio |
+| `listing/` | the words of the game's listing on Pocket Studio, in English and in Japanese (`translations.ja`) |
 | `tools/` | `requiem.ts`, `vita.ts`, `psp.ts`, `n3ds.ts`, `bench.ts`, `shot.ts`, `livearea.ts`, `release.ts`, `wgpu.ts`, `wgpu-check.ts`, `listing.ts` |
 
 ## Remixing this game

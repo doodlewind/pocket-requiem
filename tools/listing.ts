@@ -3,6 +3,7 @@
 // the clips, stills and share picture they name, recorded from the game.
 //
 //   bun tools/listing.ts [--only first-contact.mp4,card.jpg]   record → dist/listing/
+//   bun tools/listing.ts --words                                  listing.json alone, for the pictures already in dist/listing/
 //   bun tools/listing.ts --check                                the words and the takes against the limits, nothing recorded
 //   bun tools/listing.ts --upload                               then `pocket-studio listing dist/listing`, run here,
 //                                                               where `pocket-studio register` wrote .pocket-studio.json
@@ -85,6 +86,28 @@ interface Listing {
   description: string[];
   media: Media[];
   card: string;
+  translations?: Translations;
+}
+
+/**
+ * The listing's words in another language (the contract, version 1.1): `translations.<lang>` may hold a
+ * tagline, the description's paragraphs and a caption a picture, each under the English limits. A word
+ * it leaves out is shown in English.
+ */
+type Translations = Record<string, { tagline?: string; description?: string[]; captions?: Record<string, string> }>;
+function translationFaults(media: { file: string }[], translations: Translations | undefined): string[] {
+  const faults: string[] = [];
+  const files = new Set(media.map((entry) => entry.file));
+  for (const [lang, words] of Object.entries(translations ?? {})) {
+    if (!/^[a-z]{2}$/.test(lang)) faults.push(`translations: "${lang}" is not a language`);
+    if (words.tagline !== undefined && (!words.tagline || words.tagline.length > 120)) faults.push(`translations.${lang}: the tagline is one sentence of at most 120 characters`);
+    if (words.description !== undefined && (words.description.length < 1 || words.description.length > 6 || words.description.some((p) => !p || p.length > 600))) faults.push(`translations.${lang}: the description is one to six paragraphs of at most 600 characters`);
+    for (const [file, caption] of Object.entries(words.captions ?? {})) {
+      if (!files.has(file)) faults.push(`translations.${lang}: a caption for ${file}, which the listing does not name`);
+      if (!caption || caption.length > 140) faults.push(`translations.${lang}: the caption of ${file} has at most 140 characters`);
+    }
+  }
+  return faults;
 }
 
 /** The words, checked against the limits and against the takes. */
@@ -113,6 +136,7 @@ function words(): Listing {
     } else if (m.kind !== "image" || m.file.endsWith(".mp4")) wrong.push(`${m.file}: kind "${m.kind}"`);
   }
   if (listing.media[0]?.kind !== "video") wrong.push("the lead is not a clip");
+  wrong.push(...translationFaults(listing.media, listing.translations));
   const card = TAKES[listing.card];
   if (!card || card.size?.[0] !== 1200 || card.size?.[1] !== 630 || !listing.card.endsWith(".jpg")) wrong.push(`${listing.card}: the share picture is a JPEG of 1200 x 630`);
   if (wrong.length) throw new Error(`listing/listing.json: ${wrong.join("; ")}`);
@@ -168,8 +192,10 @@ if (flag("--check")) {
   console.log(`listing/listing.json: ${listing.media.length} media entries and the share picture, within the limits`);
   process.exit(0);
 }
-if (!existsSync(PACK) || !existsSync(MAP)) throw new Error("the packs are missing: bun tools/wgpu.ts cook");
-const binary = await shotBinary();
+// (--words: the words change and the pictures stay; nothing is recorded or removed)
+const wordsOnly = flag("--words");
+if (!wordsOnly && (!existsSync(PACK) || !existsSync(MAP))) throw new Error("the packs are missing: bun tools/wgpu.ts cook");
+const binary = wordsOnly ? "" : await shotBinary();
 
 if (option("--sheet")) {
   // A run of the autopilot as tiles a second and a half apart, for choosing frames: --sheet out.png [--frames 5400].
@@ -180,9 +206,9 @@ if (option("--sheet")) {
 }
 
 const only = option("--only")?.split(",");
-if (!only) rmSync(OUT, { recursive: true, force: true });
+if (!only && !wordsOnly) rmSync(OUT, { recursive: true, force: true });
 mkdirSync(OUT, { recursive: true });
-const wanted = (file: string) => !only || only.includes(file);
+const wanted = (file: string) => !wordsOnly && (!only || only.includes(file));
 for (const m of listing.media) {
   const take = TAKES[m.file]!;
   if (!wanted(m.file)) continue;

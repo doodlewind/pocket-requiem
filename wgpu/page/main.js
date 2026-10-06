@@ -30,9 +30,9 @@ import init, { Requiem, shapes } from "./pkg/requiem_wgpu.js";
 // screen. `note` is what the player says beside the device's name: how this picture differs from the one
 // that device's own build draws (README, "On the PSP and the 3DS").
 const DEVICES = [
-  { id: "vita", label: "PS Vita", sticks: 2, glyphs: "playstation", note: "This page draws the PS Vita build's pack with the PS Vita's passes, at its 30 frames a second." },
-  { id: "psp", label: "PSP", sticks: 1, glyphs: "playstation", note: "On a PSP most knights near the eye are figures of prisms, the far ranks are two quads a knight and the edges are hard. This page draws the PS Vita build's army at the PSP's size, without the PS Vita's glow." },
-  { id: "3ds", label: "Nintendo 3DS", sticks: 1, glyphs: "letters", lower: [320, 240], note: "On a 3DS the knights are coarser from 44 metres, the far ranks are two quads a knight and the edges are hard. This page draws the PS Vita build's army at the 3DS's size, without the PS Vita's glow." },
+  { id: "vita", label: "PS Vita", sticks: 2, glyphs: "playstation", note: { en: "This page draws the PS Vita build's pack with the PS Vita's passes, at its 30 frames a second.", ja: "このページは PS Vita 版のパックを、PS Vita の描画パスで、同じ毎秒 30 フレームで描いています。" } },
+  { id: "psp", label: "PSP", sticks: 1, glyphs: "playstation", note: { en: "On a PSP most knights near the eye are figures of prisms, the far ranks are two quads a knight and the edges are hard. This page draws the PS Vita build's army at the PSP's size, without the PS Vita's glow.", ja: "PSP では視点の近くの騎士の多くが角柱を組んだ姿になり、遠くの隊列は騎士 1 人を 2 枚の四角形で描き、輪郭はぎざぎざです。このページは PS Vita 版の軍勢を PSP の画面サイズで、PS Vita の光のにじみを付けずに描いています。" } },
+  { id: "3ds", label: "Nintendo 3DS", sticks: 1, glyphs: "letters", lower: [320, 240], note: { en: "On a 3DS the knights are coarser from 44 metres, the far ranks are two quads a knight and the edges are hard. This page draws the PS Vita build's army at the 3DS's size, without the PS Vita's glow.", ja: "3DS では 44 メートルより先の騎士が粗くなり、遠くの隊列は騎士 1 人を 2 枚の四角形で描き、輪郭はぎざぎざです。このページは PS Vita 版の軍勢を 3DS の画面サイズで、PS Vita の光のにじみを付けずに描いています。" } },
 ];
 
 const query = new URLSearchParams(location.search);
@@ -45,7 +45,7 @@ let device = DEVICES.find((d) => d.id === query.get("device")) ?? DEVICES[0];
 let present = () => {};
 const player = createPlayer({
   title: "Pocket Requiem",
-  tagline: "One mage against a headless army, on a field at night.",
+  tagline: { en: "One mage against a headless army, on a field at night.", ja: "夜の荒れ野で、魔法使いがひとり、首のない軍勢に立ち向かう。" },
   devices: DEVICES,
   device: device.id,
   // (the targets the game has a package for)
@@ -111,7 +111,7 @@ async function start() {
   const title = titleCard(playTitle);
   if (!hasWebGPU()) {
     await title;
-    say("This browser has no WebGPU, which Pocket Requiem draws with.");
+    say({ en: "This browser has no WebGPU, which Pocket Requiem draws with.", ja: "このブラウザは WebGPU に対応していません。Pocket Requiem の描画には WebGPU が必要です。" });
     return;
   }
   await init();
