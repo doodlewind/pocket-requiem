@@ -163,6 +163,11 @@ export function lower(layer: Layer, life: number, seed: number): Lowered {
   const rnd = sequence(seed);
 
   if (layer.type === "particles") {
+    // A particle's corner at the bottom reads the first of these and its corner at the top the second: the
+    // sprite's rows are handed over the other way round, so its first row is the particle's top (a flame's
+    // point) and its last the bottom (a flame's root).
+    const [u0, v0, u1, v1] = rect(layer.sprite);
+    row(5, [u0, v1, u1, v0]);
     row(0, [layer.speed[0], layer.speed[1], layer.gravity ?? 0, layer.drag ?? 0]);
     row(1, [layer.birth ?? 0, layer.life[0], layer.life[1], life]);
     row(2, [layer.size[0], layer.size[1], layer.vary ?? 0, layer.stretch ?? 0]);
