@@ -30,6 +30,8 @@ The build needs the `wasm32-unknown-unknown` target and `wasm-bindgen` 0.2.126 o
 
 ## The launch
 
+**The page speaks English and Japanese**, as PocketJS's player does (its README, "Languages"): `main.js` gives the game's sentence, each device's `note` and its own lines to the player as `{ en, ja }`; the player picks the language and shows the game's English for a word with no Japanese.
+
 The page plays the Pocket3D title card first (`playTitle()` of PocketJS's `pocket3d-title`, copied into the site as it is): 144 ticks, 2.4 s, over the whole page. While it plays the page opens the renderer on the canvas and starts reading the pack. When the card has ended the canvas is shown. Until the first set of reads has arrived a frame is the game's name and how much of that set has been read (`App::wait`), drawn with the pack's own glyphs, which are read first; a start that fails is said the same way. A browser without WebGPU is told so in one sentence after the card; there is no other renderer.
 
 ## The pack over HTTP
