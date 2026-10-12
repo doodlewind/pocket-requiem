@@ -30,7 +30,7 @@ The build needs the `wasm32-unknown-unknown` target and `wasm-bindgen` 0.2.126 o
 
 ## The launch
 
-**The page speaks English and Japanese**, as PocketJS's player does (its README, "Languages"): `main.js` gives the game's sentence, each device's `note` and its own lines to the player as `{ en, ja }`; the player picks the language and shows the game's English for a word with no Japanese.
+**The page speaks English and Japanese**, as PocketJS's player does (its README, "Languages"): `main.js` gives the game's sentence and its own lines to the player as `{ en, ja }`; the player picks the language and shows the game's English for a word with no Japanese.
 
 The page plays the Pocket3D title card first (`playTitle()` of PocketJS's `pocket3d-title`, copied into the site as it is): 144 ticks, 2.4 s, over the whole page. While it plays the page opens the renderer on the canvas and starts reading the pack. When the card has ended the canvas is shown. Until the first set of reads has arrived a frame is the game's name and how much of that set has been read (`App::wait`), drawn with the pack's own glyphs, which are read first; a start that fails is said the same way. A browser without WebGPU is told so in one sentence after the card; there is no other renderer.
 
@@ -64,7 +64,7 @@ The page shows one handheld at a time. A device is the renderer's shape (`SHAPES
 
 Every device runs at 30 frames a second, two ticks a frame.
 
-**Whatever the device, the pack and the programs are the PS Vita's.** A device changes the screen's size, whether the frame goes through the chain, the cap on knights out of formation (`crowd.free` of that handheld's profile), the labels of the controls in the title's line, and what turns the eye. The PSP's and the 3DS's own renderers (`psp/`, `n3ds/`) draw another army: figures of prisms, far ranks of two quads a knight, hard edges. **Each device says so** (`note` in `DEVICES` of `page/main.js`): the mark **Simulated** in the player's bar shows the player's sentence, then that one.
+**Whatever the device, the pack and the programs are the PS Vita's.** A device changes the screen's size, whether the frame goes through the chain, the cap on knights out of formation (`crowd.free` of that handheld's profile), the labels of the controls in the title's line, and what turns the eye. The PSP's and the 3DS's own renderers (`psp/`, `n3ds/`) draw another army: figures of prisms, far ranks of two quads a knight, hard edges. The mark **Simulated** in the player's bar says one sentence for every device: the browser draws the picture, and a real device draws the game with its own hardware.
 
 **The 3DS's lower screen** is a canvas of its own. Its left 240 columns are the `MAPT` section of the 3DS's pack (`cook` writes it to `.pocket-build/stage/the-field.map`, the page reads it beside the pack) with the marks the console draws: a cohort still in formation, the demon, the mage and her heading (`App::lower`). Beside it the page writes the lines the console prints: health, mana, the count, the knights standing, who plays. It is drawn six times a second.
 
